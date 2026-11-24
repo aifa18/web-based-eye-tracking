@@ -3,7 +3,6 @@
 // Satu target kalibrasi dipakai bersama; stream, FaceLandmarker, fixation
 // detector, dan log setiap kamera tetap independen.
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MutableRefObject } from "react";
 
 import WebcamFaceLandmarker, {
   enumerateCameras,
@@ -120,7 +119,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   } | null>(null);
   const [demoHref, setDemoHref] = useState<string | null>(null);
 
-  const activePointRefHolder = useRef<ReturnType<typeof usePointSequence>["activePointRef"] extends MutableRefObject<infer T> ? T : never>(null as never);
+  const activePointRefHolder = useRef<import("@/lib/eyetracking/types").ActivePoint | null>(null);
   const stageRef = useRef<Stage>("setup");
   const cameraLogsRef = useRef<CameraLog[]>([]);
   const sessionRef = useRef<SessionInfo | null>(null);
@@ -268,6 +267,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     onFinish: finishCalibration,
   });
   const { activeDot, activePointRef } = sequence;
+  activePointRefHolder.current = activePointRef.current;
 
   const abortCalibration = (reason: string) => {
     if (stageRef.current !== "calibrating") return;
