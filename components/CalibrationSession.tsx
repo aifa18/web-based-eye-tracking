@@ -553,6 +553,21 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
                 <p>Frame valid: {camera.rows.filter((row) => row.frame.faceValid).length}</p>
                 <p>Processed FPS: {summaryByCamera[camera.cameraId]?.processedFps.toFixed(2) ?? "-"}</p>
                 <p>Effective FPS: {summaryByCamera[camera.cameraId]?.effectiveFps.toFixed(2) ?? "-"}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const session = sessionRef.current;
+                    if (!session || camera.rows.length === 0) return;
+                    const prefix = isTest ? "test" : "calibration";
+                    downloadCsv(
+                      buildCalibrationCsv(camera.rows, session),
+                      csvFileName(prefix, session.layoutId, session.sessionId, camera.cameraId)
+                    );
+                  }}
+                  className="mt-2 rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                >
+                  Unduh CSV kamera ini
+                </button>
               </div>
             ))}
           </div>
