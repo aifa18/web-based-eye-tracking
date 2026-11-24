@@ -233,15 +233,20 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
 
   const prepareGaze = (session: SessionInfo) => {
     if (!isTest) {
-      // Existing browser-based gaze demo uses one dataset. For now it is
-      // intentionally trained from the first selected camera only.
-      const rows = cameraLogsRef.current[0]?.rows ?? [];
-      const set = buildTrainingSet(rows, session.sessionId, session.layoutId);
-      setGazeNote(saveTrainingSet(set) ? null : "Data latih untuk tampilan region tidak bisa disimpan di browser.");
+      // Preserve independent training sets for all cameras. The existing demo
+      // still reads the legacy session key (camera 1) for backward compatibility.
+      const setsSaved = cameraLogsRef.current.map((camera) => {
+        const set = buildTrainingSet(camera.rows, `${session.sessionId}:${camera.cameraId}`, session.layoutId);
+        return saveTrainingSet(set);
+      });
+      const firstSet = buildTrainingSet(cameraLogsRef.current[0]?.rows ?? [], session.sessionId, session.layoutId);
+      const legacySaved = saveTrainingSet(firstSet);
+      setGazeNote(setsSaved.every(Boolean) && legacySaved ? null : "Sebagian data latih kamera tidak dapat disimpan di browser.");
       return;
     }
 
-    const set = parseTrainingSet(readTrainingRaw(session.pairedSessionId));
+    const firstCameraId = CAMERA_IDS[0];
+    const set = parseTrainingSet(readTrainingRaw(`${session.pairedSessionId}:${firstCameraId}`)) ?? parseTrainingSet(readTrainingRaw(session.pairedSessionId));
     const model = set ? trainGazeModel(set) : null;
     if (!model) {
       setGazeNote(
