@@ -240,8 +240,14 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
         const set = buildTrainingSet(camera.rows, `${session.sessionId}:${camera.cameraId}`, session.layoutId);
         return saveTrainingSet(set);
       });
-      const firstSet = buildTrainingSet(cameraLogsRef.current[0]?.rows ?? [], session.sessionId, session.layoutId);
-      const legacySaved = saveTrainingSet(firstSet);
+        const firstSet = buildTrainingSet(cameraLogsRef.current[0]?.rows ?? [], session.sessionId, session.layoutId);
+      let legacySaved = false;
+      try {
+        sessionStorage.setItem(`gaze-training:${session.sessionId}`, JSON.stringify(firstSet));
+        legacySaved = true;
+      } catch (error) {
+        console.warn("Data latih kamera pertama tidak dapat disimpan untuk demo lama:", error);
+      }
       setGazeNote(setsSaved.every(Boolean) && legacySaved ? null : "Sebagian data latih kamera tidak dapat disimpan di browser.");
       return;
     }
