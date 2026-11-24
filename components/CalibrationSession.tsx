@@ -273,6 +273,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   });
   const { activeDot, activePointRef } = sequence;
   activePointRefHolder.current = activePointRef.current;
+  activePointRefHolder.current = activePointRef.current;
 
   const abortCalibration = (reason: string) => {
     if (stageRef.current !== "calibrating") return;
