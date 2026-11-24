@@ -4,10 +4,7 @@
 // detector, dan log setiap kamera tetap independen.
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import WebcamFaceLandmarker, {
-  enumerateCameras,
-  type CameraOption,
-} from "@/components/WebcamFaceLandmarker";
+import WebcamFaceLandmarker, { enumerateCameras } from "@/components/WebcamFaceLandmarker";
 import CalibrationDot from "@/components/CalibrationDot";
 import SessionSummaryCard from "@/components/SessionSummaryCard";
 import TestRegionResultView from "@/components/TestRegionResultView";
@@ -65,14 +62,6 @@ type CameraLog = {
   label: string;
   rows: LogRow[];
 };
-
-function makeCameraLogs(options: CameraOption[]): CameraLog[] {
-  return options.slice(0, CAMERA_COUNT).map((camera, index) => ({
-    cameraId: CAMERA_IDS[index],
-    label: camera.label,
-    rows: [],
-  }));
-}
 
 function csvFileName(prefix: string, layoutId: string, sessionId: string, cameraId: string) {
   return `${prefix}_${layoutId}_${sessionId}_${cameraId}.csv`;
@@ -333,7 +322,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
 
     const distanceCm = Number(viewingDistanceCm.replace(",", "."));
     const vd = PHYSICAL_SETUP.viewingDistanceCm;
-    if (!Number.isFinite(distanceCm) || distanceCm < vd.min || distanceCm > vd.max) {
+    if (!PHYSICAL_SETUP.viewingDistanceOptionsCm.includes(distanceCm as 45 | 55 | 65)) {
       setMessage(`Isi jarak mata ke layar dalam cm (${vd.min}–${vd.max} cm).`);
       return;
     }
@@ -525,12 +514,12 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
             )}
             <div className="mb-4 grid grid-cols-2 gap-3 text-left">
               <label className="block text-sm font-medium text-gray-700">Resolusi kamera
-                <select value={resolution} onChange={(e) => setResolution(e.target.value as "720p" | "1080p")} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+                <select value={resolution} onChange={(e) => { setResolution(e.target.value as "720p" | "1080p"); setCameraValid({}); }} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
                   <option value="720p">720p (1280×720)</option><option value="1080p">1080p (1920×1080)</option>
                 </select>
               </label>
               <label className="block text-sm font-medium text-gray-700">Frame rate
-                <select value={frameRate} onChange={(e) => setFrameRate(Number(e.target.value) as 30 | 60)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+                <select value={frameRate} onChange={(e) => { setFrameRate(Number(e.target.value) as 30 | 60); setCameraValid({}); }} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
                   <option value={30}>30 FPS</option><option value={60}>60 FPS</option>
                 </select>
               </label>
