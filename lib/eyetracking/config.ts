@@ -101,12 +101,11 @@ export const PHYSICAL_SETUP = {
   // 35 cm = laptop penelitian ASUS Vivobook 16 (V3607VU), 16" 16:9, 1920x1080.
   // Diukur dengan meteran: area layar menyala 35 x 20 cm.
   defaultScreenWidthCm: 35 as number | null,
-  // Protokol jarak mata ke layar (cm): tiap peserta direkam di 45, 50, 55,
-  // dan 60 cm. Jarak sebenarnya diukur dan dicatat per sesi.
-  // Semua jarak masih di dalam jarak kerja Tobii Pro Spark (45-95 cm).
-  recommendedViewingDistanceCm: { min: 45, max: 60 },
-  // Nilai awal di form (tengah rentang).
-  defaultViewingDistanceCm: 50,
+  // Protokol jarak mata ke layar (cm) sesuai rancangan pengujian.
+  recommendedViewingDistanceCm: { min: 45, max: 65 },
+  viewingDistanceOptionsCm: [45, 55, 65] as const,
+  // Nilai awal di form.
+  defaultViewingDistanceCm: 55,
   // Rentang wajar untuk validasi input (di luar ini input ditolak).
   screenWidthCm: { min: 15, max: 100 },
   viewingDistanceCm: { min: 30, max: 120 },
