@@ -22,6 +22,9 @@ export type CameraOption = {
 type WebcamFaceLandmarkerProps = {
   cameraId: string;
   cameraLabel: string;
+  requestedWidth: number;
+  requestedHeight: number;
+  requestedFrameRate: number;
   showPreview?: boolean;
   onFaceValidChange?: (cameraId: string, isValid: boolean) => void;
   onFrame?: (cameraId: string, frame: EyeTrackingFrame) => void;
@@ -49,6 +52,9 @@ export async function enumerateCameras(): Promise<CameraOption[]> {
 export default function WebcamFaceLandmarker({
   cameraId,
   cameraLabel,
+  requestedWidth,
+  requestedHeight,
+  requestedFrameRate,
   showPreview = true,
   onFaceValidChange,
   onFrame,
@@ -87,9 +93,9 @@ export default function WebcamFaceLandmarker({
           navigator.mediaDevices.getUserMedia({
             video: {
               deviceId: { exact: cameraId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30 },
+              width: { ideal: requestedWidth },
+              height: { ideal: requestedHeight },
+              frameRate: { ideal: requestedFrameRate },
             },
             audio: false,
           }),
@@ -246,7 +252,7 @@ export default function WebcamFaceLandmarker({
       stream?.getTracks().forEach((track) => track.stop());
       if (video) video.srcObject = null;
     };
-  }, [cameraId, cameraLabel]);
+  }, [cameraId, cameraLabel, requestedWidth, requestedHeight, requestedFrameRate]);
 
   return (
     <div className="relative w-full min-w-0">
