@@ -141,7 +141,21 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
         const available = await enumerateCameras();
         if (cancelled) return;
         setCameraOptions(available);
-        const defaults = available.slice(0, CAMERA_COUNT).map((camera) => camera.deviceId);
+        let defaults = available.slice(0, CAMERA_COUNT).map((camera) => camera.deviceId);
+        if (isTest && pairedSessionId) {
+          try {
+            const saved = sessionStorage.getItem(`eye-session-setup:${pairedSessionId}`);
+            if (saved) {
+              const setup = JSON.parse(saved) as { cameraIds?: string[]; resolution?: "720p" | "1080p"; frameRate?: 30 | 60 };
+              const restored = (setup.cameraIds ?? []).filter((id) => available.some((camera) => camera.deviceId === id));
+              if (restored.length === CAMERA_COUNT && new Set(restored).size === CAMERA_COUNT) defaults = restored;
+              if (setup.resolution === "720p" || setup.resolution === "1080p") setResolution(setup.resolution);
+              if (setup.frameRate === 30 || setup.frameRate === 60) setFrameRate(setup.frameRate);
+            }
+          } catch {
+            console.warn("Pengaturan kamera sesi kalibrasi tidak dapat dipulihkan.");
+          }
+        }
         setSelectedCameraIds(defaults);
         if (available.length < CAMERA_COUNT) {
           setCameraError(`Ditemukan ${available.length} kamera. Empat kamera diperlukan; hubungkan kamera tambahan.`);
@@ -156,7 +170,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     };
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [isTest, pairedSessionId]);
 
   const selectedOptions = selectedCameraIds.map((deviceId) =>
     cameraOptions.find((camera) => camera.deviceId === deviceId)
@@ -361,6 +375,17 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
       screenWidthCm: widthCm,
       viewingDistanceCm: distanceCm,
     };
+    if (!isTest) {
+      try {
+        sessionStorage.setItem(`eye-session-setup:${sessionRef.current.sessionId}`, JSON.stringify({
+          cameraIds: selectedCameraIds,
+          resolution,
+          frameRate,
+        }));
+      } catch (error) {
+        console.warn("Pengaturan kamera sesi tidak dapat disimpan:", error);
+      }
+    }
     setSessionId(sessionRef.current.sessionId);
     setSummary(null);
     setDownloaded(false);
