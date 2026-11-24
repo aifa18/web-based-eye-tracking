@@ -3,6 +3,7 @@
 // Satu target kalibrasi dipakai bersama; stream, FaceLandmarker, fixation
 // detector, dan log setiap kamera tetap independen.
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 
 import WebcamFaceLandmarker, {
   enumerateCameras,
@@ -119,6 +120,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   } | null>(null);
   const [demoHref, setDemoHref] = useState<string | null>(null);
 
+  const activePointRefHolder = useRef<ReturnType<typeof usePointSequence>["activePointRef"] extends MutableRefObject<infer T> ? T : never>(null as never);
   const stageRef = useRef<Stage>("setup");
   const cameraLogsRef = useRef<CameraLog[]>([]);
   const sessionRef = useRef<SessionInfo | null>(null);
@@ -186,7 +188,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
 
     // Each camera owns its own I-DT state; no samples cross camera streams.
     const fixation = detector.update(frame);
-    const point = activePointRef.current;
+    const point = activePointRefHolder.current;
     if (!point) return;
     const tInPoint = frame.timestamp - point.onset;
     const phase: Phase =
