@@ -57,8 +57,8 @@ type CalibrationSessionProps = {
   prefill?: SetupPrefill;
 };
 
-const CAMERA_COUNT = 3;
-const CAMERA_IDS = ["camera-1", "camera-2", "camera-3"] as const;
+const CAMERA_COUNT = 4;
+const CAMERA_IDS = ["camera-1", "camera-2", "camera-3", "camera-4"] as const;
 
 type CameraLog = {
   cameraId: string;
@@ -101,6 +101,8 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const [viewingDistanceCm, setViewingDistanceCm] = useState(
     prefill?.viewingDistanceCm ?? PHYSICAL_SETUP.defaultViewingDistanceCm.toString()
   );
+  const [resolution, setResolution] = useState<"720p" | "1080p">("720p");
+  const [frameRate, setFrameRate] = useState<30 | 60>(30);
 
   const recDist = PHYSICAL_SETUP.recommendedViewingDistanceCm;
   const typedDistance = Number(viewingDistanceCm.replace(",", "."));
@@ -152,7 +154,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
         const defaults = available.slice(0, CAMERA_COUNT).map((camera) => camera.deviceId);
         setSelectedCameraIds(defaults);
         if (available.length < CAMERA_COUNT) {
-          setCameraError(`Ditemukan ${available.length} kamera. Tiga kamera diperlukan; hubungkan kamera tambahan.`);
+          setCameraError(`Ditemukan ${available.length} kamera. Empat kamera diperlukan; hubungkan kamera tambahan.`);
         } else {
           setCameraError(null);
         }
@@ -322,7 +324,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     }
 
     if (!allCamerasValid) {
-      setMessage("Pastikan ketiga kamera aktif dan posisi wajah valid pada masing-masing kamera.");
+      setMessage("Pastikan keempat kamera aktif dan posisi wajah valid pada masing-masing kamera.");
       return;
     }
 
@@ -408,7 +410,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     <main className={`relative min-h-screen overflow-hidden bg-gray-100 ${isCalibrating ? "cursor-none" : ""}`}>
       {/* Camera components stay mounted while the calibration target sequence runs. */}
       <div className={stage === "setup" ? "px-6 pt-6" : "pointer-events-none fixed left-0 top-0 h-px w-px overflow-hidden opacity-0"}>
-        <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {selectedCameraIds.map((deviceId, index) => {
             const option = selectedOptions[index];
             if (!option) return null;
@@ -417,6 +419,9 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
                 key={deviceId}
                 cameraId={deviceId}
                 cameraLabel={`Kamera ${index + 1}: ${option.label}`}
+                requestedWidth={resolution === "720p" ? 1280 : 1920}
+                requestedHeight={resolution === "720p" ? 720 : 1080}
+                requestedFrameRate={frameRate}
                 showPreview={stage === "setup"}
                 onFaceValidChange={handleFaceValid}
                 onFrame={handleFrame}
@@ -434,13 +439,13 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
             </h1>
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">Layout {layout.id}</p>
             <p className="mb-4 text-sm text-gray-600">
-              Hubungkan tiga kamera yang berbeda. Ketiga kamera merekam peserta secara bersamaan saat peserta menatap target yang sama. Pertahankan posisi kepala dan duduk selama sesi.
+              Hubungkan empat kamera yang berbeda. Keempat kamera merekam peserta secara bersamaan saat peserta menatap target yang sama. Pertahankan posisi kepala dan duduk selama sesi.
             </p>
 
             {cameraError && (
               <p className="mb-3 rounded-lg bg-amber-50 p-3 text-left text-sm text-amber-900">{cameraError}</p>
             )}
-            <div className="mb-4 grid gap-3 text-left md:grid-cols-3">
+            <div className="mb-4 grid gap-3 text-left md:grid-cols-2 xl:grid-cols-4">
               {Array.from({ length: CAMERA_COUNT }, (_, index) => (
                 <label key={index} className="block text-sm font-medium text-gray-700">
                   Kamera {index + 1}
@@ -463,7 +468,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
               ))}
             </div>
             {!selectedUnique && (
-              <p className="mb-3 text-left text-xs text-red-600">Pilih tiga perangkat kamera yang berbeda.</p>
+              <p className="mb-3 text-left text-xs text-red-600">Pilih empat perangkat kamera yang berbeda.</p>
             )}
             <div className="mb-4 grid gap-3 md:grid-cols-3">
               {selectedOptions.map((option, index) => option ? (
@@ -492,7 +497,9 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
               </label>
               <label className="block text-sm font-medium text-gray-700">
                 Jarak mata–layar (cm)
-                <input type="number" inputMode="decimal" step="1" value={viewingDistanceCm} onChange={(e) => setViewingDistanceCm(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
+                <select value={viewingDistanceCm} onChange={(e) => setViewingDistanceCm(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+                  {PHYSICAL_SETUP.viewingDistanceOptionsCm.map((distance) => <option key={distance} value={distance}>{distance} cm</option>)}
+                </select>
               </label>
             </div>
 
@@ -501,11 +508,25 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
                 Jarak {viewingDistanceCm} cm di luar protokol ({recDist.min}–{recDist.max} cm). Sesi tetap bisa dimulai, tetapi sebaiknya atur ulang posisi duduk.
               </p>
             )}
+            <div className="mb-4 grid grid-cols-2 gap-3 text-left">
+              <label className="block text-sm font-medium text-gray-700">Resolusi kamera
+                <select value={resolution} onChange={(e) => setResolution(e.target.value as "720p" | "1080p")} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+                  <option value="720p">720p (1280×720)</option><option value="1080p">1080p (1920×1080)</option>
+                </select>
+              </label>
+              <label className="block text-sm font-medium text-gray-700">Frame rate
+                <select value={frameRate} onChange={(e) => setFrameRate(Number(e.target.value) as 30 | 60)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+                  <option value={30}>30 FPS</option><option value={60}>60 FPS</option>
+                </select>
+              </label>
+            </div>
+            <p className="mb-4 text-left text-xs text-amber-800">Resolusi dan FPS yang benar-benar didapatkan kamera akan diverifikasi dari pengaturan stream. Jika perangkat tidak mendukung kombinasi pilihan, browser dapat menggunakan konfigurasi aktual yang berbeda.</p>
             <div className="mb-4 rounded-lg bg-blue-50 p-3 text-left text-xs text-blue-900">
               <p className="mb-1 font-semibold">Protokol pengukuran</p>
               <ol className="list-decimal space-y-0.5 pl-4">
                 <li>Lebar layar: ukur area tampilan (tanpa bingkai) dari kiri ke kanan.</li>
-                <li>Ukur jarak mata ke layar ({recDist.min}–{recDist.max} cm) dan isi nilai sebenarnya.</li>
+                <li>Atur jarak mata ke layar sesuai pilihan 45, 55, atau 65 cm.</li>
+                <li>Atur resolusi dan FPS sesuai kombinasi pengujian.</li>
                 <li>Pertahankan posisi duduk dan kepala selama seluruh sesi.</li>
               </ol>
             </div>
@@ -513,7 +534,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
             {cameraValidRef.current && allCamerasValid ? (
               <p className="mb-3 font-medium text-green-600">✓ Ketiga kamera mendeteksi wajah dengan valid</p>
             ) : (
-              <p className="mb-3 font-medium text-amber-700">Pastikan wajah valid pada ketiga preview kamera</p>
+              <p className="mb-3 font-medium text-amber-700">Pastikan wajah valid pada keempat preview kamera</p>
             )}
             {message && <p className="mb-4 text-sm text-red-500">{message}</p>}
             <button onClick={startCalibration} disabled={!allCamerasValid} className={`rounded-lg px-6 py-3 font-medium text-white ${allCamerasValid ? "bg-blue-600 hover:bg-blue-700" : "cursor-not-allowed bg-gray-400"}`}>
