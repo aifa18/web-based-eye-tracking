@@ -114,11 +114,12 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const [downloaded, setDownloaded] = useState(false);
   const [testGridHref, setTestGridHref] = useState<string | null>(null);
   const [gazeNote, setGazeNote] = useState<string | null>(null);
-  const [regionResult, setRegionResult] = useState<{
+  const [regionResults, setRegionResults] = useState<Record<string, {
     result: TestRegionResult;
     screenW: number;
     screenH: number;
-  } | null>(null);
+    cameraLabel: string;
+  }>>({});
   const [demoHref, setDemoHref] = useState<string | null>(null);
 
   const activePointRefHolder = useRef<import("@/lib/eyetracking/types").ActivePoint | null>(null);
@@ -254,23 +255,37 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
       return;
     }
 
-    const firstCameraId = CAMERA_IDS[0];
-    const set = parseTrainingSet(readTrainingRaw(`${session.pairedSessionId}:${firstCameraId}`)) ?? parseTrainingSet(readTrainingRaw(session.pairedSessionId));
-    const model = set ? trainGazeModel(set) : null;
-    if (!model) {
-      setGazeNote(
-        set
-          ? "Frame kalibrasi valid terlalu sedikit untuk melatih model region."
-          : "Hasil region tidak tersedia: data kalibrasi pasangan tidak ditemukan di tab ini. Jalankan kalibrasi lalu test grid di tab yang sama."
-      );
-      return;
+    const results: Record<string, {
+      result: TestRegionResult;
+      screenW: number;
+      screenH: number;
+      cameraLabel: string;
+    }> = {};
+    const missing: string[] = [];
+    for (const camera of cameraLogsRef.current) {
+      const set = parseTrainingSet(
+        readTrainingRaw(`${session.pairedSessionId}:${camera.cameraId}`)
+      ) ?? (camera.cameraId === CAMERA_IDS[0]
+        ? parseTrainingSet(readTrainingRaw(session.pairedSessionId))
+        : null);
+      const model = set ? trainGazeModel(set) : null;
+      if (!model) {
+        missing.push(camera.label);
+        continue;
+      }
+      results[camera.cameraId] = {
+        result: computeTestRegionResult(camera.rows, model, GAZE_REGION, physicalSetupOf(session)),
+        screenW: session.screenW,
+        screenH: session.screenH,
+        cameraLabel: camera.label,
+      };
     }
-    const rows = cameraLogsRef.current[0]?.rows ?? [];
-    setRegionResult({
-      result: computeTestRegionResult(rows, model, GAZE_REGION, physicalSetupOf(session)),
-      screenW: session.screenW,
-      screenH: session.screenH,
-    });
+    setRegionResults(results);
+    if (missing.length) {
+      setGazeNote(`Evaluasi belum tersedia untuk: ${missing.join(", ")}. Pastikan data kalibrasi dan test grid berasal dari kamera yang sama.`);
+    } else {
+      setGazeNote(null);
+    }
     const q = new URLSearchParams({ cal: session.pairedSessionId, pid: session.participantId });
     setDemoHref(`/gaze-demo?${q.toString()}`);
   };
@@ -362,7 +377,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     setDownloaded(false);
     setTestGridHref(null);
     setGazeNote(null);
-    setRegionResult(null);
+    setRegionResults({});
     setDemoHref(null);
     changeStage("calibrating");
     sequence.start(RANDOMIZE_ORDER ? shuffle(layout.points) : [...layout.points]);
@@ -605,7 +620,12 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
               </div>
             ))}
           </div>
-          {regionResult && <TestRegionResultView {...regionResult} />}
+          {Object.entries(regionResults).map(([cameraId, item]) => (
+            <section key={cameraId} className="mb-6 rounded-lg border border-gray-200 p-4">
+              <h3 className="mb-3 text-lg font-semibold">{item.cameraLabel}</h3>
+              <TestRegionResultView result={item.result} screenW={item.screenW} screenH={item.screenH} />
+            </section>
+          ))}
           {gazeNote && <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{gazeNote}</p>}
         </SessionSummaryCard>
       )}
