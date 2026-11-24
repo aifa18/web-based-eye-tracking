@@ -1,13 +1,13 @@
 "use client";
 
-// Halaman sesi titik lengkap (setup -> titik tampil -> selesai/batal).
-// Dipakai oleh /calibration (HV9), /calibration-13 (HV13), dan
-// /test-grid (TEST12, data uji). Perbedaannya hanya pada layout titik
-// yang dikirim lewat props.
+// Satu target kalibrasi dipakai bersama; stream, FaceLandmarker, fixation
+// detector, dan log setiap kamera tetap independen.
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useCallback, useRef, useState } from "react";
-
-import WebcamFaceLandmarker from "@/components/WebcamFaceLandmarker";
+import WebcamFaceLandmarker, {
+  enumerateCameras,
+  type CameraOption,
+} from "@/components/WebcamFaceLandmarker";
 import CalibrationDot from "@/components/CalibrationDot";
 import SessionSummaryCard from "@/components/SessionSummaryCard";
 import TestRegionResultView from "@/components/TestRegionResultView";
@@ -57,6 +57,27 @@ type CalibrationSessionProps = {
   prefill?: SetupPrefill;
 };
 
+const CAMERA_COUNT = 3;
+const CAMERA_IDS = ["camera-1", "camera-2", "camera-3"] as const;
+
+type CameraLog = {
+  cameraId: string;
+  label: string;
+  rows: LogRow[];
+};
+
+function makeCameraLogs(options: CameraOption[]): CameraLog[] {
+  return options.slice(0, CAMERA_COUNT).map((camera, index) => ({
+    cameraId: CAMERA_IDS[index],
+    label: camera.label,
+    rows: [],
+  }));
+}
+
+function csvFileName(prefix: string, layoutId: string, sessionId: string, cameraId: string) {
+  return `${prefix}_${layoutId}_${sessionId}_${cameraId}.csv`;
+}
+
 export default function CalibrationSession({ layout, prefill }: CalibrationSessionProps) {
   const pointCount = layout.points.length;
   const isTest = layout.kind === "test";
@@ -65,12 +86,14 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
 
   const [stage, setStage] = useState<Stage>("setup");
   const [participantId, setParticipantId] = useState(prefill?.participantId ?? "");
-  const [faceIsValid, setFaceIsValid] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [summary, setSummary] = useState<SessionSummary | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [summary, setSummary] = useState<SessionSummary | null>(null);
+  const [cameraOptions, setCameraOptions] = useState<CameraOption[]>([]);
+  const [selectedCameraIds, setSelectedCameraIds] = useState<string[]>([]);
+  const [cameraValid, setCameraValid] = useState<Record<string, boolean>>({});
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
-  // Setup fisik (disimpan sebagai teks agar input bisa dikosongkan saat diketik)
   const [screenWidthCm, setScreenWidthCm] = useState(
     prefill?.screenWidthCm ?? PHYSICAL_SETUP.defaultScreenWidthCm?.toString() ?? ""
   );
@@ -78,7 +101,6 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     prefill?.viewingDistanceCm ?? PHYSICAL_SETUP.defaultViewingDistanceCm.toString()
   );
 
-  // Peringatan (tidak memblokir) jika jarak di luar rentang protokol.
   const recDist = PHYSICAL_SETUP.recommendedViewingDistanceCm;
   const typedDistance = Number(viewingDistanceCm.replace(",", "."));
   const distanceOutsideProtocol =
@@ -86,14 +108,8 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     Number.isFinite(typedDistance) &&
     (typedDistance < recDist.min || typedDistance > recDist.max);
 
-  // CSV sudah diunduh? (tombol lanjut ke test grid baru aktif setelahnya,
-  // karena data sesi hilang saat pindah halaman)
   const [downloaded, setDownloaded] = useState(false);
   const [testGridHref, setTestGridHref] = useState<string | null>(null);
-
-  // Model gaze di browser (tidak memengaruhi CSV):
-  // - kalibrasi: data latih disimpan di sessionStorage untuk test grid & demo
-  // - test grid: hasil tebakan per titik dalam bentuk region
   const [gazeNote, setGazeNote] = useState<string | null>(null);
   const [regionResult, setRegionResult] = useState<{
     result: TestRegionResult;
@@ -102,27 +118,97 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   } | null>(null);
   const [demoHref, setDemoHref] = useState<string | null>(null);
 
-  // Satu detektor fixation untuk seluruh sesi (dibuat sekali).
-  const [fixationDetector] = useState(() => new FixationDetector(FIXATION));
-
-  // Semua data yang dibaca di callback per-frame disimpan di ref
-  // agar tidak terkena stale closure dan tidak memicu render.
   const stageRef = useRef<Stage>("setup");
-  const logRef = useRef<LogRow[]>([]);
+  const cameraLogsRef = useRef<CameraLog[]>([]);
   const sessionRef = useRef<SessionInfo | null>(null);
+  const fixationDetectorsRef = useRef<Map<string, FixationDetector>>(new Map());
+  const cameraValidRef = useRef<Record<string, boolean>>({});
 
   const changeStage = (next: Stage) => {
     stageRef.current = next;
     setStage(next);
   };
 
-  // Alur kalibrasi
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        // Permission is requested by each stream; labels are populated once
+        // permission has been granted by the browser.
+        const initial = await navigator.mediaDevices.enumerateDevices();
+        const hasVideoInput = initial.some((d) => d.kind === "videoinput");
+        if (!hasVideoInput) {
+          setCameraError("Tidak ada kamera yang terdeteksi.");
+          return;
+        }
+        const permissionStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        permissionStream.getTracks().forEach((track) => track.stop());
+        const available = await enumerateCameras();
+        if (cancelled) return;
+        setCameraOptions(available);
+        const defaults = available.slice(0, CAMERA_COUNT).map((camera) => camera.deviceId);
+        setSelectedCameraIds(defaults);
+        if (available.length < CAMERA_COUNT) {
+          setCameraError(`Ditemukan ${available.length} kamera. Tiga kamera diperlukan; hubungkan kamera tambahan.`);
+        } else {
+          setCameraError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setCameraError(err instanceof Error ? err.message : "Gagal membaca daftar kamera.");
+        }
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const selectedOptions = selectedCameraIds.map((deviceId) =>
+    cameraOptions.find((camera) => camera.deviceId === deviceId)
+  );
+  const selectedUnique = selectedCameraIds.length === CAMERA_COUNT &&
+    selectedCameraIds.every(Boolean) &&
+    new Set(selectedCameraIds).size === CAMERA_COUNT;
+  const allCamerasValid = selectedUnique &&
+    selectedCameraIds.every((id) => cameraValid[id] === true);
+
+  const handleFaceValid = useCallback((cameraId: string, isValid: boolean) => {
+    cameraValidRef.current = { ...cameraValidRef.current, [cameraId]: isValid };
+    setCameraValid((previous) => ({ ...previous, [cameraId]: isValid }));
+  }, []);
+
+  const handleFrame = useCallback((cameraId: string, frame: EyeTrackingFrame) => {
+    if (stageRef.current !== "calibrating") return;
+    const log = cameraLogsRef.current.find((item) => item.cameraId === cameraId);
+    const detector = fixationDetectorsRef.current.get(cameraId);
+    if (!log || !detector) return;
+
+    // Each camera owns its own I-DT state; no samples cross camera streams.
+    const fixation = detector.update(frame);
+    const point = activePointRef.current;
+    if (!point) return;
+    const tInPoint = frame.timestamp - point.onset;
+    const phase: Phase =
+      tInPoint < 0 ? "pre_onset" : tInPoint < TRANSITION_MS ? "transition" : "fixation";
+
+    log.rows.push({
+      frame,
+      point,
+      tInPoint,
+      phase,
+      fixation,
+      fixationAfterOnset: fixation.isFixation && fixation.startMs >= point.onset,
+      viewportW: window.innerWidth,
+      viewportH: window.innerHeight,
+      isFullscreen: !!document.fullscreenElement,
+    });
+  }, []);
+
   const finishCalibration = () => {
     sequence.stop();
-    setSummary(computeSummary(logRef.current, layout.points));
+    const firstRows = cameraLogsRef.current[0]?.rows ?? [];
+    setSummary(computeSummary(firstRows, layout.points));
 
-    // Tautan ke test grid membawa setup sesi ini, supaya data uji
-    // terpasang dengan sesi kalibrasinya.
     const session = sessionRef.current;
     if (!isTest && session) {
       const q = new URLSearchParams({
@@ -135,21 +221,17 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     }
 
     if (session) prepareGaze(session);
-
-    // Ubah stage SEBELUM keluar layar penuh agar listener
-    // fullscreenchange tidak menganggapnya pembatalan.
     changeStage("finished");
     exitFullscreen();
   };
 
   const prepareGaze = (session: SessionInfo) => {
     if (!isTest) {
-      const set = buildTrainingSet(logRef.current, session.sessionId, session.layoutId);
-      setGazeNote(
-        saveTrainingSet(set)
-          ? null
-          : "Data latih untuk tampilan region tidak bisa disimpan di browser."
-      );
+      // Existing browser-based gaze demo uses one dataset. For now it is
+      // intentionally trained from the first selected camera only.
+      const rows = cameraLogsRef.current[0]?.rows ?? [];
+      const set = buildTrainingSet(rows, session.sessionId, session.layoutId);
+      setGazeNote(saveTrainingSet(set) ? null : "Data latih untuk tampilan region tidak bisa disimpan di browser.");
       return;
     }
 
@@ -159,14 +241,13 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
       setGazeNote(
         set
           ? "Frame kalibrasi valid terlalu sedikit untuk melatih model region."
-          : "Hasil region tidak tersedia: data kalibrasi pasangan tidak ditemukan di tab ini. " +
-              "Jalankan kalibrasi lalu test grid di tab yang sama (lewat tombol \"Lanjut ke Test Grid\")."
+          : "Hasil region tidak tersedia: data kalibrasi pasangan tidak ditemukan di tab ini. Jalankan kalibrasi lalu test grid di tab yang sama."
       );
       return;
     }
-
+    const rows = cameraLogsRef.current[0]?.rows ?? [];
     setRegionResult({
-      result: computeTestRegionResult(logRef.current, model, GAZE_REGION, physicalSetupOf(session)),
+      result: computeTestRegionResult(rows, model, GAZE_REGION, physicalSetupOf(session)),
       screenW: session.screenW,
       screenH: session.screenH,
     });
@@ -179,68 +260,22 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     preStartDelayMs: PRE_START_DELAY_MS,
     onFinish: finishCalibration,
   });
-
   const { activeDot, activePointRef } = sequence;
-
-  // Pencatatan setiap frame (termasuk frame tidak valid)
-  const handleFrame = useCallback(
-    (frame: EyeTrackingFrame) => {
-      if (stageRef.current !== "calibrating") return;
-
-      // Detektor tetap diberi frame selama jeda awal (sebelum titik pertama)
-      // agar jendelanya sudah terisi saat titik muncul.
-      const fixation = fixationDetector.update(frame);
-
-      const point = activePointRef.current;
-      if (!point) return;
-
-      const tInPoint = frame.timestamp - point.onset;
-
-      // pre_onset: frame di-capture sebelum titik ini muncul
-      // (masih milik tatapan ke titik sebelumnya).
-      const phase: Phase =
-        tInPoint < 0
-          ? "pre_onset"
-          : tInPoint < TRANSITION_MS
-          ? "transition"
-          : "fixation";
-
-      logRef.current.push({
-        frame,
-        point,
-        tInPoint,
-        phase,
-        fixation,
-        fixationAfterOnset:
-          fixation.isFixation && fixation.startMs >= point.onset,
-        viewportW: window.innerWidth,
-        viewportH: window.innerHeight,
-        isFullscreen: !!document.fullscreenElement,
-      });
-    },
-    [activePointRef, fixationDetector]
-  );
 
   const abortCalibration = (reason: string) => {
     if (stageRef.current !== "calibrating") return;
-
     sequence.stop();
-    fixationDetector.reset();
-    logRef.current = []; // data sesi yang tidak lengkap dibuang
+    fixationDetectorsRef.current.forEach((detector) => detector.reset());
+    cameraLogsRef.current.forEach((camera) => { camera.rows = []; });
     setMessage(reason);
     changeStage("aborted");
     exitFullscreen();
   };
 
-  // Pembatalan aman: keluar layar penuh (Esc) atau pindah tab
-  useFullscreenGuard({
-    requireFullscreen: REQUIRE_FULLSCREEN,
-    onAbort: abortCalibration,
-  });
+  useFullscreenGuard({ requireFullscreen: REQUIRE_FULLSCREEN, onAbort: abortCalibration });
 
   const startCalibration = async () => {
     setMessage(null);
-
     const pid = participantId.trim().replace(/[^A-Za-z0-9_-]/g, "");
     if (!pid) {
       setMessage("Isi ID partisipan (huruf, angka, - atau _).");
@@ -261,19 +296,29 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
       return;
     }
 
-    if (!faceIsValid) return;
+    if (!allCamerasValid) {
+      setMessage("Pastikan ketiga kamera aktif dan posisi wajah valid pada masing-masing kamera.");
+      return;
+    }
 
     if (REQUIRE_FULLSCREEN) {
       try {
         await document.documentElement.requestFullscreen();
       } catch {
-        setMessage(
-          `Mode layar penuh gagal diaktifkan. ${sessionLabel} memerlukan layar penuh.`
-        );
+        setMessage(`Mode layar penuh gagal diaktifkan. ${sessionLabel} memerlukan layar penuh.`);
         return;
       }
     }
 
+    const logs = selectedOptions.map((option, index) => ({
+      cameraId: CAMERA_IDS[index],
+      label: option?.label ?? `Kamera ${index + 1}`,
+      rows: [] as LogRow[],
+    }));
+    cameraLogsRef.current = logs;
+    fixationDetectorsRef.current = new Map(
+      CAMERA_IDS.map((id) => [id, new FixationDetector(FIXATION)])
+    );
     sessionRef.current = {
       participantId: pid,
       sessionId: `${pid}_${formatSessionTime(new Date())}`,
@@ -286,27 +331,22 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
       viewingDistanceCm: distanceCm,
     };
     setSessionId(sessionRef.current.sessionId);
-
-    fixationDetector.reset();
-    logRef.current = [];
     setSummary(null);
     setDownloaded(false);
     setTestGridHref(null);
     setGazeNote(null);
     setRegionResult(null);
     setDemoHref(null);
-
     changeStage("calibrating");
-
-    sequence.start(
-      RANDOMIZE_ORDER ? shuffle(layout.points) : [...layout.points]
-    );
+    sequence.start(RANDOMIZE_ORDER ? shuffle(layout.points) : [...layout.points]);
   };
 
   const resetCalibration = () => {
     sequence.stop();
-    fixationDetector.reset();
-    logRef.current = [];
+    fixationDetectorsRef.current.forEach((detector) => detector.reset());
+    cameraLogsRef.current.forEach((camera) => { camera.rows = []; });
+    cameraLogsRef.current = [];
+    fixationDetectorsRef.current.clear();
     sessionRef.current = null;
     setSessionId(null);
     setSummary(null);
@@ -319,242 +359,167 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     changeStage("setup");
   };
 
-  // Ekspor CSV (skema kolom tetap)
   const downloadCSV = () => {
-    const rows = logRef.current;
     const session = sessionRef.current;
-
-    if (rows.length === 0 || !session) {
+    if (!session || cameraLogsRef.current.every((camera) => camera.rows.length === 0)) {
       alert(`Belum ada data ${sessionLabel.toLowerCase()}.`);
       return;
     }
-
-    // Data uji diberi awalan "test_" agar dibaca notebook sebagai test grid.
     const prefix = isTest ? "test" : "calibration";
-    downloadCsv(
-      buildCalibrationCsv(rows, session),
-      `${prefix}_${session.layoutId}_${session.sessionId}.csv`
-    );
+    cameraLogsRef.current.forEach((camera) => {
+      if (camera.rows.length === 0) return;
+      downloadCsv(
+        buildCalibrationCsv(camera.rows, session),
+        csvFileName(prefix, session.layoutId, session.sessionId, camera.cameraId)
+      );
+    });
     setDownloaded(true);
   };
 
-  // RENDER
   const isCalibrating = stage === "calibrating";
 
   return (
-    <main
-      className={`relative min-h-screen overflow-hidden bg-gray-100 ${
-        isCalibrating ? "cursor-none" : ""
-      }`}
-    >
-      {/* =====================================
-          WEBCAM / MEDIAPIPE
-          Selalu ter-mount agar kamera tidak restart.
-          ===================================== */}
-      <div
-        className={
-          isCalibrating
-            ? "pointer-events-none fixed left-0 top-0 w-[640px] opacity-0"
-            : stage === "setup"
-            ? "flex justify-center px-8 pt-8"
-            : "hidden"
-        }
-      >
-        <div className="w-full max-w-3xl">
-          <WebcamFaceLandmarker
-            showPreview={stage === "setup"}
-            onFaceValidChange={setFaceIsValid}
-            onFrame={handleFrame}
-          />
+    <main className={`relative min-h-screen overflow-hidden bg-gray-100 ${isCalibrating ? "cursor-none" : ""}`}>
+      {/* Camera components stay mounted while the calibration target sequence runs. */}
+      <div className={stage === "setup" ? "px-6 pt-6" : "pointer-events-none fixed left-0 top-0 h-px w-px overflow-hidden opacity-0"}>
+        <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 md:grid-cols-3">
+          {selectedCameraIds.map((deviceId, index) => {
+            const option = selectedOptions[index];
+            if (!option) return null;
+            return (
+              <WebcamFaceLandmarker
+                key={deviceId}
+                cameraId={deviceId}
+                cameraLabel={`Kamera ${index + 1}: ${option.label}`}
+                showPreview={stage === "setup"}
+                onFaceValidChange={handleFaceValid}
+                onFrame={handleFrame}
+              />
+            );
+          })}
         </div>
       </div>
 
-      {/* =====================================
-          SETUP
-          ===================================== */}
       {stage === "setup" && (
-        <div className="flex justify-center px-8 py-6">
-          <div className="w-full max-w-md rounded-xl bg-white px-8 py-6 text-center shadow-lg">
+        <div className="flex justify-center px-6 py-6">
+          <div className="w-full max-w-xl rounded-xl bg-white px-8 py-6 text-center shadow-lg">
             <h1 className="mb-1 text-2xl font-bold text-black">
               {isTest ? "Test Grid" : "Kalibrasi"} {pointCount} Titik
             </h1>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-              Layout {layout.id}
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">Layout {layout.id}</p>
+            <p className="mb-4 text-sm text-gray-600">
+              Hubungkan tiga kamera yang berbeda. Ketiga kamera merekam peserta secara bersamaan saat peserta menatap target yang sama. Pertahankan posisi kepala dan duduk selama sesi.
             </p>
 
-            <p className="mb-4 text-sm text-gray-600">
-              Posisikan wajah di dalam area panduan. Selama{" "}
-              {sessionLabel.toLowerCase()}, tatap titik pusat lingkaran merah
-              sampai titik berpindah, dan usahakan kepala tetap diam. Tekan Esc
-              untuk membatalkan.
-            </p>
+            {cameraError && (
+              <p className="mb-3 rounded-lg bg-amber-50 p-3 text-left text-sm text-amber-900">{cameraError}</p>
+            )}
+            <div className="mb-4 grid gap-3 text-left md:grid-cols-3">
+              {Array.from({ length: CAMERA_COUNT }, (_, index) => (
+                <label key={index} className="block text-sm font-medium text-gray-700">
+                  Kamera {index + 1}
+                  <select
+                    value={selectedCameraIds[index] ?? ""}
+                    onChange={(event) => {
+                      const next = [...selectedCameraIds];
+                      next[index] = event.target.value;
+                      setSelectedCameraIds(next);
+                      setCameraValid({});
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-2 font-normal"
+                  >
+                    <option value="">Pilih kamera</option>
+                    {cameraOptions.map((camera) => (
+                      <option key={camera.deviceId} value={camera.deviceId}>{camera.label}</option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+            {!selectedUnique && (
+              <p className="mb-3 text-left text-xs text-red-600">Pilih tiga perangkat kamera yang berbeda.</p>
+            )}
+            <div className="mb-4 grid gap-3 md:grid-cols-3">
+              {selectedOptions.map((option, index) => option ? (
+                <div key={option.deviceId} className="rounded-lg bg-gray-50 p-2 text-left text-xs">
+                  <span className="font-semibold">Kamera {index + 1}:</span>{" "}
+                  {cameraValid[option.deviceId] ? <span className="text-green-700">wajah valid</span> : <span className="text-amber-700">menunggu validasi wajah</span>}
+                </div>
+              ) : null)}
+            </div>
 
             {isTest && (
-              <div
-                className={`mb-4 rounded-lg p-3 text-left text-xs ${
-                  pairedSessionId
-                    ? "bg-green-50 text-green-900"
-                    : "bg-amber-50 text-amber-900"
-                }`}
-              >
-                {pairedSessionId ? (
-                  <>
-                    Data uji untuk sesi kalibrasi{" "}
-                    <span className="font-semibold">{pairedSessionId}</span>.
-                    Jangan ubah posisi duduk sejak kalibrasi.
-                  </>
-                ) : (
-                  <>
-                    Tidak terhubung dengan sesi kalibrasi. Sebaiknya buka halaman
-                    ini lewat tombol &quot;Lanjut ke Test Grid&quot; setelah
-                    kalibrasi, agar data uji terpasang dengan sesinya.
-                  </>
-                )}
+              <div className={`mb-4 rounded-lg p-3 text-left text-xs ${pairedSessionId ? "bg-green-50 text-green-900" : "bg-amber-50 text-amber-900"}`}>
+                {pairedSessionId ? <>Data uji untuk sesi kalibrasi <span className="font-semibold">{pairedSessionId}</span>.</> : <>Tidak terhubung dengan sesi kalibrasi. Sebaiknya buka melalui tombol Lanjut ke Test Grid.</>}
               </div>
             )}
 
             <label className="mb-4 block text-left text-sm font-medium text-gray-700">
               ID Partisipan
-              <input
-                type="text"
-                value={participantId}
-                onChange={(e) => setParticipantId(e.target.value)}
-                placeholder="contoh: P01"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal"
-              />
+              <input type="text" value={participantId} onChange={(e) => setParticipantId(e.target.value)} placeholder="contoh: P01" className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
             </label>
 
             <div className="mb-4 grid grid-cols-2 gap-3 text-left">
               <label className="block text-sm font-medium text-gray-700">
                 Lebar layar (cm)
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.1"
-                  value={screenWidthCm}
-                  onChange={(e) => setScreenWidthCm(e.target.value)}
-                  placeholder="contoh: 34.5"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal"
-                />
+                <input type="number" inputMode="decimal" step="0.1" value={screenWidthCm} onChange={(e) => setScreenWidthCm(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
               </label>
               <label className="block text-sm font-medium text-gray-700">
                 Jarak mata–layar (cm)
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  step="1"
-                  value={viewingDistanceCm}
-                  onChange={(e) => setViewingDistanceCm(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal"
-                />
+                <input type="number" inputMode="decimal" step="1" value={viewingDistanceCm} onChange={(e) => setViewingDistanceCm(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
               </label>
             </div>
 
             {distanceOutsideProtocol && (
               <p className="mb-4 rounded-lg bg-amber-50 p-2 text-left text-xs text-amber-900">
-                Jarak {viewingDistanceCm} cm di luar protokol ({recDist.min}–
-                {recDist.max} cm). Sesi tetap bisa dimulai, tetapi sebaiknya atur
-                ulang posisi duduk.
+                Jarak {viewingDistanceCm} cm di luar protokol ({recDist.min}–{recDist.max} cm). Sesi tetap bisa dimulai, tetapi sebaiknya atur ulang posisi duduk.
               </p>
             )}
-
             <div className="mb-4 rounded-lg bg-blue-50 p-3 text-left text-xs text-blue-900">
               <p className="mb-1 font-semibold">Protokol pengukuran</p>
               <ol className="list-decimal space-y-0.5 pl-4">
-                <li>
-                  Lebar layar: ukur area tampilan (tanpa bingkai) dari kiri ke
-                  kanan dengan penggaris.
-                </li>
-                <li>
-                  Jarak: atur kursi hingga jarak mata ke layar{" "}
-                  {recDist.min}–{recDist.max} cm, ukur dengan meteran, lalu isi
-                  nilai sebenarnya.
-                </li>
-                <li>Pertahankan posisi duduk selama kalibrasi.</li>
+                <li>Lebar layar: ukur area tampilan (tanpa bingkai) dari kiri ke kanan.</li>
+                <li>Ukur jarak mata ke layar ({recDist.min}–{recDist.max} cm) dan isi nilai sebenarnya.</li>
+                <li>Pertahankan posisi duduk dan kepala selama seluruh sesi.</li>
               </ol>
             </div>
 
-            <div className="mb-4">
-              {faceIsValid ? (
-                <p className="font-medium text-green-600">
-                  ✓ Posisi wajah sesuai
-                </p>
-              ) : (
-                <p className="font-medium text-red-500">
-                  ✕ Sesuaikan posisi wajah
-                </p>
-              )}
-            </div>
-
-            {message && (
-              <p className="mb-4 text-sm text-red-500">{message}</p>
+            {cameraValidRef.current && allCamerasValid ? (
+              <p className="mb-3 font-medium text-green-600">✓ Ketiga kamera mendeteksi wajah dengan valid</p>
+            ) : (
+              <p className="mb-3 font-medium text-amber-700">Pastikan wajah valid pada ketiga preview kamera</p>
             )}
-
-            <button
-              onClick={startCalibration}
-              disabled={!faceIsValid}
-              className={`rounded-lg px-6 py-3 font-medium text-white ${
-                faceIsValid
-                  ? "bg-blue-600 hover:bg-blue-700"
-                  : "cursor-not-allowed bg-gray-400"
-              }`}
-            >
+            {message && <p className="mb-4 text-sm text-red-500">{message}</p>}
+            <button onClick={startCalibration} disabled={!allCamerasValid} className={`rounded-lg px-6 py-3 font-medium text-white ${allCamerasValid ? "bg-blue-600 hover:bg-blue-700" : "cursor-not-allowed bg-gray-400"}`}>
               Mulai {sessionLabel}
             </button>
           </div>
         </div>
       )}
 
-      {/* =====================================
-          KALIBRASI
-          ===================================== */}
       {isCalibrating && (
         <div className="fixed inset-0 z-20 bg-gray-100">
           {activeDot ? (
-            <CalibrationDot
-              key={activeDot.order}
-              x={activeDot.x}
-              y={activeDot.y}
-            />
+            <CalibrationDot key={activeDot.order} x={activeDot.x} y={activeDot.y} />
           ) : (
             <div className="flex h-full items-center justify-center">
-              <p className="text-lg text-gray-500">
-                Bersiap... tatap titik merah yang akan muncul.
-              </p>
+              <p className="text-lg text-gray-500">Bersiap... tatap titik merah yang akan muncul.</p>
             </div>
           )}
-
-          {activeDot && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-gray-400">
-              {activeDot.order} / {pointCount}
-            </div>
-          )}
+          {activeDot && <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-gray-400">{activeDot.order} / {pointCount}</div>}
         </div>
       )}
 
-      {/* =====================================
-          DIBATALKAN
-          ===================================== */}
       {stage === "aborted" && (
         <div className="flex min-h-screen items-center justify-center p-8">
           <div className="max-w-md rounded-xl bg-white p-8 text-center shadow-lg">
-            <h1 className="mb-3 text-2xl font-bold text-red-500">
-              {sessionLabel} Dibatalkan
-            </h1>
+            <h1 className="mb-3 text-2xl font-bold text-red-500">{sessionLabel} Dibatalkan</h1>
             <p className="mb-6 text-gray-600">{message}</p>
-            <button
-              onClick={resetCalibration}
-              className="rounded-lg bg-gray-700 px-6 py-3 font-medium text-white hover:bg-gray-800"
-            >
-              Kembali
-            </button>
+            <button onClick={resetCalibration} className="rounded-lg bg-gray-700 px-6 py-3 font-medium text-white hover:bg-gray-800">Kembali</button>
           </div>
         </div>
       )}
 
-      {/* =====================================
-          SELESAI
-          ===================================== */}
       {stage === "finished" && summary && (
         <SessionSummaryCard
           title={`${sessionLabel} Selesai`}
@@ -568,9 +533,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
           nextLabel={isTest ? "Coba Demo Region" : "Lanjut ke Test Grid"}
         >
           {regionResult && <TestRegionResultView {...regionResult} />}
-          {gazeNote && (
-            <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{gazeNote}</p>
-          )}
+          {gazeNote && <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{gazeNote}</p>}
         </SessionSummaryCard>
       )}
     </main>
