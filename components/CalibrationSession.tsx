@@ -87,6 +87,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const [stage, setStage] = useState<Stage>("setup");
   const [participantId, setParticipantId] = useState(prefill?.participantId ?? "");
   const [message, setMessage] = useState<string | null>(null);
+  const [summaryByCamera, setSummaryByCamera] = useState<Record<string, SessionSummary>>({});
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [summary, setSummary] = useState<SessionSummary | null>(null);
   const [cameraOptions, setCameraOptions] = useState<CameraOption[]>([]);
@@ -206,8 +207,12 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
 
   const finishCalibration = () => {
     sequence.stop();
-    const firstRows = cameraLogsRef.current[0]?.rows ?? [];
-    setSummary(computeSummary(firstRows, layout.points));
+    const cameraSummaries: Record<string, SessionSummary> = {};
+    for (const camera of cameraLogsRef.current) {
+      cameraSummaries[camera.cameraId] = computeSummary(camera.rows, layout.points);
+    }
+    setSummaryByCamera(cameraSummaries);
+    setSummary(cameraSummaries[CAMERA_IDS[0]] ?? null);
 
     const session = sessionRef.current;
     if (!isTest && session) {
@@ -350,6 +355,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     sessionRef.current = null;
     setSessionId(null);
     setSummary(null);
+    setSummaryByCamera({});
     setMessage(null);
     setDownloaded(false);
     setTestGridHref(null);
@@ -532,6 +538,17 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
           nextHref={(isTest ? demoHref : testGridHref) ?? undefined}
           nextLabel={isTest ? "Coba Demo Region" : "Lanjut ke Test Grid"}
         >
+          <div className="mb-4 grid gap-3 md:grid-cols-3">
+            {cameraLogsRef.current.map((camera) => (
+              <div key={camera.cameraId} className="rounded-lg border border-gray-200 p-3 text-left text-sm">
+                <p className="font-semibold">{camera.label}</p>
+                <p>Jumlah frame: {camera.rows.length}</p>
+                <p>Frame valid: {camera.rows.filter((row) => row.frame.faceValid).length}</p>
+                <p>Processed FPS: {summaryByCamera[camera.cameraId]?.processedFps.toFixed(2) ?? "-"}</p>
+                <p>Effective FPS: {summaryByCamera[camera.cameraId]?.effectiveFps.toFixed(2) ?? "-"}</p>
+              </div>
+            ))}
+          </div>
           {regionResult && <TestRegionResultView {...regionResult} />}
           {gazeNote && <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{gazeNote}</p>}
         </SessionSummaryCard>
