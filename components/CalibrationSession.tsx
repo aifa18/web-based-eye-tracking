@@ -650,6 +650,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
         <SessionSummaryCard
           title={`${sessionLabel} Selesai`}
           summary={summary}
+          summaryLabel={cameraLogsRef.current[0]?.label ?? "Kamera 1"}
           sessionId={sessionId ?? undefined}
           onDownload={downloadCSV}
           onReset={resetCalibration}
@@ -662,10 +663,15 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
             {cameraLogsRef.current.map((camera) => (
               <div key={camera.cameraId} className="rounded-lg border border-gray-200 p-3 text-left text-sm">
                 <p className="font-semibold">{camera.label}</p>
-                <p>Jumlah frame: {camera.rows.length}</p>
-                <p>Frame valid: {camera.rows.filter((row) => row.frame.faceValid).length}</p>
-                <p>Processed FPS: {summaryByCamera[camera.cameraId]?.processedFps.toFixed(2) ?? "-"}</p>
-                <p>Effective FPS: {summaryByCamera[camera.cameraId]?.effectiveFps.toFixed(2) ?? "-"}</p>
+                <p>Frame: {camera.rows.length}</p>
+                <p>Frame wajah valid: {camera.rows.filter((row) => row.frame.faceValid).length} ({camera.rows.length ? (100 * camera.rows.filter((row) => row.frame.faceValid).length / camera.rows.length).toFixed(1) : "0"}%)</p>
+                <p>Diminta: {resolution} / {frameRate} FPS</p>
+                <p>Track aktual: {camera.captureSettings.width ?? "-"}×{camera.captureSettings.height ?? "-"} / {camera.captureSettings.frameRate?.toFixed(1) ?? "-"} FPS</p>
+                <p>Delivered FPS (timestamp): {summaryByCamera[camera.cameraId]?.processedFps.toFixed(2) ?? "-"}</p>
+                <p>FPS frame valid: {summaryByCamera[camera.cameraId]?.effectiveFps.toFixed(2) ?? "-"}</p>
+                <p>Rata-rata deteksi: {summaryByCamera[camera.cameraId]?.meanDetectionMs.toFixed(2) ?? "-"} ms</p>
+                <p>Timestamp capture: {((summaryByCamera[camera.cameraId]?.captureTimeRatio ?? 0) * 100).toFixed(1)}%</p>
+                <p>Rata-rata latensi fiksasi: {summaryByCamera[camera.cameraId]?.meanFixationLatencyMs.toFixed(0) ?? "-"} ms</p>
                 <button
                   type="button"
                   onClick={() => {
