@@ -183,7 +183,7 @@ export function buildTestEvaluationCsv(
     result.grid.cols, result.grid.rows, result.pointHitPct, result.frameHitPct,
     result.meanErrorDeg, result.nFrames, result.nTrain,
   ];
-  const summaryRow = ["summary", ...common, ...Array(12).fill("")];
+  const summaryRow = ["summary", ...common, ...Array(11).fill("")];
   const frameRows = result.framePredictions.map((frame) => [
     "frame", ...common,
     frame.frameIndex, frame.timestampMs, frame.pointId, frame.targetX, frame.targetY,
