@@ -124,6 +124,14 @@ export function viewingDistanceRangeOf(conditionCm: number): { min: number; max:
   return PHYSICAL_SETUP.viewingDistanceRanges[conditionCm];
 }
 
+// Make adjacent ranges non-overlapping at the shared boundary: 45 cm includes
+// 40–50 cm; 55 cm is (50,60]; 65 cm is (60,70].
+export function isViewingDistanceWithinRange(conditionCm: number, actualCm: number): boolean {
+  const range = viewingDistanceRangeOf(conditionCm);
+  if (!range || !Number.isFinite(actualCm) || actualCm > range.max) return false;
+  return conditionCm === 45 ? actualCm >= range.min : actualCm > range.min;
+}
+
 // FIXATION (I-DT online kumulatif, lihat lib/eyetracking/fixation.ts)
 // Posisi iris diukur relatif terhadap sudut mata, dalam satuan "panjang mata".
 // Dari data pilot (4 sesi, 40 titik):
