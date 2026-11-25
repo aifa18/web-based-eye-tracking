@@ -88,6 +88,9 @@ export type SessionInfo = {
   screenW: number;
   screenH: number;
   devicePixelRatio: number;
+  requestedWidth: number;
+  requestedHeight: number;
+  requestedFrameRate: number;
   screenWidthCm: number;     // lebar fisik area layar
   viewingDistanceConditionCm: number; // label kondisi: 45/55/65
   viewingDistanceCm: number; // jarak aktual mata ke layar, untuk perhitungan sudut
