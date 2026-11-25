@@ -5,274 +5,259 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-st.set_page_config(page_title="Eye Tracking Dashboard", page_icon="👁️", layout="wide")
-st.title("Eye Tracking Research Dashboard")
-st.caption("Analisis hasil akuisisi, kalibrasi, dan evaluasi gaze test grid.")
+st.set_page_config(page_title="GazeLab | Pilot Study", page_icon="👁", layout="wide")
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
+html,body,[class*="css"]{font-family:'DM Sans',sans-serif}
+.stApp{background:#0b1020;color:#e8edf8}
+[data-testid="stHeader"]{background:rgba(11,16,32,.9)}
+[data-testid="stSidebar"]{background:#11182b;border-right:1px solid #26314b}
+[data-testid="stSidebar"] *{color:#e8edf8}
+h1,h2,h3{font-family:'Manrope',sans-serif!important;letter-spacing:-.03em}
+h1{font-size:2.3rem!important}
+[data-testid="stMetric"]{background:linear-gradient(135deg,#151e34,#121a2c);border:1px solid #263653;padding:17px 19px;border-radius:16px}
+[data-testid="stMetricLabel"]{color:#9caecb!important}
+[data-testid="stMetricValue"]{color:#f3f7ff!important;font-family:'Manrope',sans-serif}
+.block-container{padding-top:2rem;max-width:1500px}
+.hero{background:radial-gradient(circle at 85% 15%,#243c62 0,#17243c 32%,#121a2c 70%);border:1px solid #2b3c5c;padding:27px 30px;border-radius:22px;margin-bottom:22px}
+.eyebrow{color:#79e7d0;text-transform:uppercase;font-size:.75rem;font-weight:700;letter-spacing:.16em}
+.hero h1{margin:8px 0;color:#f3f7ff}
+.hero p,.muted{color:#b7c6df}
+.pill{display:inline-block;border:1px solid #315c69;background:#132d39;color:#8debd7;padding:4px 10px;border-radius:999px;font-size:.78rem;font-weight:700}
+.panel{background:#121a2c;border:1px solid #263653;border-radius:16px;padding:18px 20px}
+hr{border-color:#263653!important}
+</style>
+""", unsafe_allow_html=True)
 
 def read_csv(file):
-    raw = file.getvalue()
-    try:
-        df = pd.read_csv(BytesIO(raw), encoding="utf-8-sig", sep=None, engine="python", on_bad_lines="warn")
-    except Exception:
-        df = pd.read_csv(BytesIO(raw), encoding="latin-1", sep=None, engine="python", on_bad_lines="warn")
-    df.columns = [str(c).strip().replace("\ufeff", "") for c in df.columns]
-    df["_source_file"] = file.name
+    raw=file.getvalue()
+    try: df=pd.read_csv(BytesIO(raw),encoding="utf-8-sig",sep=None,engine="python",on_bad_lines="warn")
+    except Exception: df=pd.read_csv(BytesIO(raw),encoding="latin-1",sep=None,engine="python",on_bad_lines="warn")
+    df.columns=[str(c).strip().replace("\ufeff","") for c in df.columns]
+    df["_source_file"]=file.name
     return df
 
-def num(df, columns):
-    for c in columns:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
+def first_col(df, options):
+    return next((c for c in options if c in df.columns),None)
 
-def bool_series(s):
-    return s.astype(str).str.strip().str.lower().isin(["true", "1", "yes", "y"])
-
-def first_col(df, choices):
-    return next((c for c in choices if c in df.columns), None)
+def numeric(df, cols):
+    for c in cols:
+        if c in df.columns: df[c]=pd.to_numeric(df[c],errors="coerce")
 
 def csv_bytes(df):
     return df.to_csv(index=False).encode("utf-8-sig")
 
-files = st.file_uploader("Unggah CSV (bisa beberapa file sekaligus)", type=["csv"], accept_multiple_files=True)
-if not files:
-    st.info("Unggah CSV evaluasi test grid (test-evaluation_...) dan CSV raw kalibrasi/test (calibration_...).")
-    with st.expander("Jenis data yang dibaca"):
-        st.markdown("""
-        - Test evaluation: baris record_type summary dan frame; digunakan untuk gaze error (°), point/frame hit rate, dan prediksi gaze.
-        - Raw acquisition: digunakan untuk face-valid rate, fixation, FPS, detection time, timestamp, serta metadata kamera.
-        - Raw kalibrasi tidak dianggap sebagai gaze error. Gaze error diambil dari frame_error_deg hasil evaluasi test grid.
-        """)
-    st.stop()
-
-parts = []
-for file in files:
+def fmt(v,suffix="",digits=2):
     try:
-        parts.append(read_csv(file))
-    except Exception as e:
-        st.error(f"Tidak dapat membaca {file.name}: {e}")
-if not parts:
+        if v is None or not math.isfinite(float(v)): return "—"
+        return f"{float(v):,.{digits}f}{suffix}"
+    except (TypeError,ValueError): return "—"
+
+st.markdown("""
+<div class="hero">
+<div class="eyebrow">Eye tracking · Multi-camera pilot study</div>
+<h1>GazeLab <span style="color:#7cebd4">/</span> Experiment Dashboard</h1>
+<p>Compare the performance of a trained gaze model across cameras and acquisition configurations. Main results come from model predictions evaluated against ground truth—not from raw acquisition data.</p>
+</div>
+""",unsafe_allow_html=True)
+
+with st.sidebar:
+    st.markdown("## Study controls")
+    st.caption("Main analysis")
+    eval_files=st.file_uploader("Model inference / evaluation CSV",type=["csv"],accept_multiple_files=True,
+        help="Upload evaluated model outputs with predicted gaze, ground truth, and degree error.")
+    st.divider()
+    st.markdown("### Supporting data")
+    raw_files=st.file_uploader("Raw acquisition CSV (optional)",type=["csv"],accept_multiple_files=True,
+        help="Used only for face-valid rate, FPS, detection time, and acquisition diagnostics.")
+    st.divider()
+    st.caption("Pilot results are exploratory; not final research conclusions.")
+
+if not eval_files:
+    st.markdown('<div class="panel"><span class="pill">WAITING FOR MODEL OUTPUT</span><h3 style="margin-top:14px">Start with evaluated predictions</h3><p class="muted">Upload the CSV exported after the trained model performs inference and its predictions are evaluated against ground truth.</p></div>',unsafe_allow_html=True)
+    st.markdown("#### Required for the main dashboard")
+    st.markdown("- Model predicted gaze X/Y\n- Ground-truth coordinates paired with predictions\n- Degree error per frame or per session\n- Camera, respondent/session, and experiment configuration")
+    st.info("Raw acquisition data will not be used to calculate degree error or select the best model configuration.")
     st.stop()
 
-data = pd.concat(parts, ignore_index=True, sort=False)
-if "record_type" in data.columns:
-    eval_data = data[data.record_type.astype(str).str.lower().isin(["summary", "frame"])].copy()
-    raw = data[~data.record_type.astype(str).str.lower().isin(["summary", "frame"])].copy()
+parts=[]
+for f in eval_files:
+    try: parts.append(read_csv(f))
+    except Exception as e: st.error(f"Cannot read {f.name}: {e}")
+if not parts: st.stop()
+data=pd.concat(parts,ignore_index=True,sort=False)
+numeric(data,["mean_error_deg","frame_error_deg","point_hit_pct","frame_hit_pct","n_valid_test_frames","n_total_test_frames","timestamp_ms","point_id","target_x","target_y","predicted_gaze_x","predicted_gaze_y","distance_condition_cm","requested_video_w","requested_video_h","requested_frame_rate_fps","valid_prediction_rate_pct","valid_frame_rate_pct"])
+for c in ["participant_id","camera_id","camera_label","test_session_id","scenario_id","model_version"]:
+    if c in data: data[c]=data[c].fillna("Unknown").astype(str)
+
+if "record_type" in data:
+    frames=data[data.record_type.astype(str).str.lower().eq("frame")].copy()
+    summary=data[data.record_type.astype(str).str.lower().eq("summary")].copy()
 else:
-    eval_data, raw = pd.DataFrame(), data.copy()
+    frames=data.copy() if "frame_error_deg" in data else pd.DataFrame()
+    summary=data.copy() if "mean_error_deg" in data else pd.DataFrame()
+if frames.empty and summary.empty:
+    st.error("CSV format not recognized. Provide summary/frame records or frame_error_deg/mean_error_deg columns.")
+    st.stop()
 
-numeric = [
-    "mean_error_deg", "frame_error_deg", "point_hit_pct", "frame_hit_pct",
-    "n_valid_test_frames", "n_training_frames", "frame_index", "timestamp_ms",
-    "point_id", "target_x", "target_y", "predicted_gaze_x", "predicted_gaze_y",
-    "distance_condition_cm", "actual_viewing_distance_cm", "screen_width_cm",
-    "detection_ms", "measured_delivered_frame_rate_fps", "track_settings_frame_rate_fps",
-    "requested_frame_rate_fps", "viewing_distance_cm", "fixation_dispersion",
-    "requested_video_w", "requested_video_h", "track_settings_video_w", "track_settings_video_h",
-]
-num(eval_data, numeric)
-num(raw, numeric)
+base=summary if not summary.empty else frames
+with st.sidebar:
+    st.markdown("### Filter results")
+    def multiselect(df,col,label):
+        if col not in df or df.empty:return None
+        vals=sorted(df[col].dropna().astype(str).unique())
+        return st.multiselect(label,vals,default=vals)
+    people=multiselect(base,"participant_id","Respondent")
+    cams=multiselect(base,"camera_label","Camera")
+    sess=multiselect(base,"test_session_id","Session")
+    scen=multiselect(base,"scenario_id","Scenario")
+    dist=multiselect(base,"distance_condition_cm","Distance (cm)")
 
-if "participant_id" in eval_data.columns:
-    eval_data["participant_id"] = eval_data["participant_id"].fillna("(ID kosong)").astype(str)
-if "camera_id" in eval_data.columns:
-    eval_data["camera_id"] = eval_data["camera_id"].fillna("(kamera tidak diketahui)").astype(str)
-if "camera_label" in eval_data.columns:
-    fallback = eval_data["camera_id"] if "camera_id" in eval_data.columns else pd.Series("Kamera tidak diketahui", index=eval_data.index)
-    eval_data["camera_label"] = eval_data["camera_label"].fillna(fallback).astype(str)
-
-if "record_type" in eval_data.columns:
-    summary = eval_data[eval_data.record_type.astype(str).str.lower().eq("summary")].copy()
-    frames = eval_data[eval_data.record_type.astype(str).str.lower().eq("frame")].copy()
-else:
-    summary, frames = pd.DataFrame(), pd.DataFrame()
-
-st.sidebar.header("Filter")
-def filter_select(df, column, label):
-    if column not in df.columns or df.empty:
-        return None
-    values = sorted(df[column].dropna().astype(str).unique().tolist())
-    return st.sidebar.multiselect(label, values, default=values)
-
-participants = filter_select(eval_data, "participant_id", "Responden")
-camera_labels = filter_select(eval_data, "camera_label", "Kamera")
-sessions = filter_select(eval_data, "test_session_id", "Sesi test")
-distances = filter_select(eval_data, "distance_condition_cm", "Kondisi jarak (cm)")
-
-def apply_filters(df):
-    out = df.copy()
-    for column, selected in [
-        ("participant_id", participants), ("camera_label", camera_labels),
-        ("test_session_id", sessions), ("distance_condition_cm", distances),
-    ]:
-        if selected is not None and column in out.columns:
-            out = out[out[column].astype(str).isin(selected)]
+def filter_df(df):
+    out=df.copy()
+    for col,selected in [("participant_id",people),("camera_label",cams),("test_session_id",sess),("scenario_id",scen),("distance_condition_cm",dist)]:
+        if selected is not None and col in out: out=out[out[col].astype(str).isin(selected)]
     return out
+frames=filter_df(frames); summary=filter_df(summary)
+errs=frames.frame_error_deg.dropna() if "frame_error_deg" in frames else pd.Series(dtype=float)
+if not errs.empty: overall=float(errs.mean())
+elif "mean_error_deg" in summary and not summary.mean_error_deg.dropna().empty:
+    if "n_valid_test_frames" in summary:
+        w=summary.n_valid_test_frames.fillna(0).clip(lower=0); valid=summary.mean_error_deg.notna() & w.gt(0)
+        overall=float((summary.loc[valid,"mean_error_deg"]*w[valid]).sum()/w[valid].sum()) if valid.any() else float(summary.mean_error_deg.mean())
+    else: overall=float(summary.mean_error_deg.mean())
+else: overall=math.nan
 
-summary, frames = apply_filters(summary), apply_filters(frames)
-raw_filtered = raw.copy()
-if participants is not None and "participant_id" in raw_filtered.columns:
-    raw_filtered = raw_filtered[raw_filtered.participant_id.astype(str).isin(participants)]
-raw_cam = first_col(raw_filtered, ["camera_label", "camera_id"])
-if camera_labels is not None and raw_cam:
-    raw_filtered = raw_filtered[raw_filtered[raw_cam].astype(str).isin(camera_labels)]
+camcol=first_col(base,["camera_label","camera_id"])
+modelcol=first_col(base,["model_version","model_name"])
+models=", ".join(sorted(base[modelcol].dropna().astype(str).unique())) if modelcol else "not specified"
+st.markdown(f'<span class="pill">MODEL EVALUATION</span> &nbsp; <span class="muted">Model version: {models}</span>',unsafe_allow_html=True)
+st.markdown("## Study overview")
+cols=st.columns(5)
+cols[0].metric("Respondents",base.participant_id.nunique() if "participant_id" in base else 0)
+cols[1].metric("Cameras",base[camcol].nunique() if camcol else 0)
+cols[2].metric("Sessions",base.test_session_id.nunique() if "test_session_id" in base else 0)
+cols[3].metric("Valid test frames",f"{int(summary.n_valid_test_frames.fillna(0).sum()):,}" if "n_valid_test_frames" in summary else f"{len(errs):,}")
+cols[4].metric("Mean degree error",fmt(overall,"°"))
 
-errors = frames["frame_error_deg"].dropna() if "frame_error_deg" in frames.columns else pd.Series(dtype=float)
-if not errors.empty:
-    mean_error = float(errors.mean())
-elif "mean_error_deg" in summary.columns:
-    weights = summary.get("n_valid_test_frames", pd.Series(1, index=summary.index)).fillna(1)
-    valid = summary.mean_error_deg.notna() & weights.gt(0)
-    mean_error = float((summary.loc[valid, "mean_error_deg"] * weights[valid]).sum() / weights[valid].sum()) if valid.any() else math.nan
-else:
-    mean_error = math.nan
+t_over,t_cam,t_rank,t_point,t_frame,t_acq=st.tabs(["Overview","Camera comparison","Best configuration","Gaze accuracy map","Frame-level audit","Acquisition"])
 
-n_people = summary.participant_id.nunique() if "participant_id" in summary.columns else 0
-n_cameras = summary.camera_id.nunique() if "camera_id" in summary.columns else 0
-n_sessions = summary.test_session_id.nunique() if "test_session_id" in summary.columns else 0
-n_valid = int(summary.n_valid_test_frames.fillna(0).sum()) if "n_valid_test_frames" in summary.columns else len(frames)
+with t_over:
+    left,right=st.columns([1.35,1])
+    with left:
+        st.markdown("### Error distribution")
+        if not errs.empty:
+            fig=px.histogram(frames,x="frame_error_deg",nbins=35,labels={"frame_error_deg":"Angular error (°)"},template="plotly_dark")
+            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",margin=dict(l=8,r=8,t=20,b=8))
+            st.plotly_chart(fig,use_container_width=True)
+        else: st.info("Frame-level error not provided; showing summary-level metrics.")
+    with right:
+        st.markdown("### Pilot snapshot")
+        st.markdown(f'<div class="panel"><p><b>Camera count:</b> {base[camcol].nunique() if camcol else 0}</p><p><b>Respondents:</b> {base.participant_id.nunique() if "participant_id" in base else 0}</p><p><b>Evaluation rows:</b> {len(frames):,} frames · {len(summary):,} summaries</p><p class="muted">Compare configurations under equivalent experiment conditions.</p></div>',unsafe_allow_html=True)
+    if not summary.empty:
+        show=[c for c in ["participant_id","camera_label","scenario_id","test_session_id","distance_condition_cm","requested_video_w","requested_video_h","requested_frame_rate_fps","mean_error_deg","n_valid_test_frames","point_hit_pct","frame_hit_pct","model_version"] if c in summary]
+        st.markdown("### Session evaluation")
+        st.dataframe(summary[show],use_container_width=True,hide_index=True)
+        st.download_button("Export evaluation summary",csv_bytes(summary[show]),"pilot_model_evaluation_summary.csv","text/csv")
 
-k = st.columns(5)
-k[0].metric("Responden", n_people)
-k[1].metric("Kamera", n_cameras)
-k[2].metric("Sesi test", n_sessions)
-k[3].metric("Frame test valid", f"{n_valid:,}")
-k[4].metric("Mean gaze error", f"{mean_error:.2f}°" if math.isfinite(mean_error) else "—")
+with t_cam:
+    st.markdown("### Camera performance")
+    if camcol and "mean_error_deg" in summary and not summary.empty:
+        group=[camcol]+[c for c in ["scenario_id","distance_condition_cm","requested_video_w","requested_video_h","requested_frame_rate_fps"] if c in summary]
+        agg={"mean_error_deg":("mean_error_deg","mean")}
+        if "n_valid_test_frames" in summary: agg["valid_frames"]=("n_valid_test_frames","sum")
+        if "point_hit_pct" in summary: agg["point_hit_pct"]=("point_hit_pct","mean")
+        if "frame_hit_pct" in summary: agg["frame_hit_pct"]=("frame_hit_pct","mean")
+        comp=summary.groupby(group,dropna=False).agg(**agg).reset_index()
+        fig=px.bar(comp,x=camcol,y="mean_error_deg",color=camcol,
+            facet_col="scenario_id" if "scenario_id" in comp and comp.scenario_id.nunique()>1 else None,
+            labels={camcol:"Camera","mean_error_deg":"Mean angular error (°)"},template="plotly_dark")
+        fig.update_layout(showlegend=False,paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig,use_container_width=True)
+        st.dataframe(comp.sort_values("mean_error_deg"),use_container_width=True,hide_index=True)
+    else: st.info("Camera comparison requires camera identifier and mean_error_deg.")
 
-if eval_data.empty:
-    st.warning("Tidak ditemukan CSV evaluasi dengan record_type summary/frame. Raw acquisition tetap dapat dianalisis di bawah.")
-else:
-    t1, t2, t3, t4, t5 = st.tabs(["Ringkasan", "Responden", "Kamera", "Titik test", "Frame-level"])
-    with t1:
-        m = st.columns(2)
-        if "point_hit_pct" in summary.columns:
-            m[0].metric("Point hit rate rata-rata", f"{summary.point_hit_pct.mean():.1f}%" if summary.point_hit_pct.notna().any() else "—")
-        if "frame_hit_pct" in summary.columns:
-            m[1].metric("Frame hit rate rata-rata", f"{summary.frame_hit_pct.mean():.1f}%" if summary.frame_hit_pct.notna().any() else "—")
-        color = first_col(summary, ["camera_label", "camera_id"])
-        if not summary.empty and color and "mean_error_deg" in summary.columns:
-            fig = px.bar(summary, x="participant_id", y="mean_error_deg", color=color, barmode="group",
-                         hover_data=[c for c in ["test_session_id", "distance_condition_cm", "n_valid_test_frames"] if c in summary.columns],
-                         labels={"participant_id": "Responden", "mean_error_deg": "Mean error (°)"})
-            st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(summary, use_container_width=True, hide_index=True)
-    with t2:
-        if not summary.empty and "participant_id" in summary.columns:
-            agg = {"mean_error_deg": "mean"}
-            for c in ["point_hit_pct", "frame_hit_pct"]:
-                if c in summary.columns: agg[c] = "mean"
-            by_person = summary.groupby("participant_id", dropna=False).agg(agg).reset_index()
-            st.dataframe(by_person, use_container_width=True, hide_index=True)
-            st.plotly_chart(px.bar(by_person, x="participant_id", y="mean_error_deg",
-                                  labels={"participant_id": "ID responden", "mean_error_deg": "Mean gaze error (°)"}),
-                             use_container_width=True)
-        else:
-            st.info("Tidak ada summary pada filter ini.")
-    with t3:
-        camera = first_col(summary, ["camera_label", "camera_id"])
-        if camera and "mean_error_deg" in summary.columns and not summary.empty:
-            agg = {"mean_error_deg": ("mean_error_deg", "mean")}
-            if "test_session_id" in summary.columns:
-                agg["jumlah_sesi"] = ("test_session_id", "nunique")
-            by_camera = summary.groupby(camera, dropna=False).agg(**agg).reset_index()
-            st.plotly_chart(px.bar(by_camera, x=camera, y="mean_error_deg",
-                                  labels={camera: "Kamera", "mean_error_deg": "Mean gaze error (°)"},
-                                  hover_data=[c for c in ["jumlah_sesi"] if c in by_camera.columns]),
-                             use_container_width=True)
-            st.dataframe(by_camera, use_container_width=True, hide_index=True)
-        else:
-            st.info("Tidak ada summary kamera pada filter ini.")
-    with t4:
-        if not frames.empty and "point_id" in frames.columns:
-            by_point = frames.groupby("point_id", dropna=False).agg(
-                n_frames=("frame_error_deg", "count"),
-                mean_error_deg=("frame_error_deg", "mean"),
-                median_error_deg=("frame_error_deg", "median"),
-                frame_hit_pct=("frame_hit", lambda s: 100 * bool_series(s).mean()),
-            ).reset_index()
-            st.plotly_chart(px.bar(by_point, x="point_id", y="mean_error_deg",
-                                  labels={"point_id": "Point ID", "mean_error_deg": "Mean error (°)"},
-                                  hover_data=["n_frames", "median_error_deg", "frame_hit_pct"]),
-                             use_container_width=True)
-            st.dataframe(by_point, use_container_width=True, hide_index=True)
-        else:
-            st.info("Tidak ada frame-level test evaluation.")
-    with t5:
-        if not frames.empty:
-            if "frame_error_deg" in frames.columns:
-                st.plotly_chart(px.histogram(frames, x="frame_error_deg", nbins=40,
-                                            labels={"frame_error_deg": "Frame gaze error (°)"}),
-                                use_container_width=True)
-            if {"target_x", "target_y", "predicted_gaze_x", "predicted_gaze_y"}.issubset(frames.columns):
-                fig = px.scatter(frames, x="target_x", y="target_y", color="frame_error_deg",
-                                 hover_data=[c for c in ["participant_id", "camera_label", "point_id", "frame_error_deg"] if c in frames.columns],
-                                 labels={"target_x": "Target X (normalized)", "target_y": "Target Y (normalized)"})
-                fig.add_scatter(x=frames.predicted_gaze_x, y=frames.predicted_gaze_y, mode="markers",
-                                name="Prediksi gaze", marker={"symbol": "x"})
-                fig.update_yaxes(autorange="reversed")
-                st.plotly_chart(fig, use_container_width=True)
-            st.dataframe(frames, use_container_width=True, hide_index=True)
-            st.download_button("Unduh frame evaluation terfilter", csv_bytes(frames),
-                              "eye_tracking_frame_evaluation_filtered.csv", "text/csv")
-        else:
-            st.info("Tidak ada frame evaluation.")
+with t_rank:
+    st.markdown("### Configuration ranking")
+    st.caption("Exploratory ranking by lowest mean degree error. Check prediction coverage and sample size before interpreting a leader.")
+    if not summary.empty and "mean_error_deg" in summary:
+        groups=[c for c in ["camera_label","camera_id","scenario_id","distance_condition_cm","requested_video_w","requested_video_h","requested_frame_rate_fps","track_settings_video_w","track_settings_video_h","track_settings_frame_rate_fps"] if c in summary]
+        if not groups: groups=[camcol] if camcol else ["mean_error_deg"]
+        rank=summary.groupby(groups,dropna=False).agg(
+            mean_error_deg=("mean_error_deg","mean"),
+            valid_frames=("n_valid_test_frames","sum") if "n_valid_test_frames" in summary else ("mean_error_deg","size"),
+            sessions=("test_session_id","nunique") if "test_session_id" in summary else ("mean_error_deg","size")
+        ).reset_index().sort_values("mean_error_deg",na_position="last")
+        coverage=first_col(summary,["valid_prediction_rate_pct","valid_frame_rate_pct"])
+        if coverage:
+            cov=summary.groupby(groups,dropna=False)[coverage].mean().reset_index(name="prediction_coverage_pct")
+            rank=rank.merge(cov,on=groups,how="left")
+        if not rank.empty and rank.mean_error_deg.notna().any():
+            best=rank.dropna(subset=["mean_error_deg"]).iloc[0]
+            st.markdown('<div class="panel"><span class="pill">LOWEST OBSERVED ERROR</span><h3 style="margin-top:12px">Current pilot leader</h3>',unsafe_allow_html=True)
+            st.metric("Mean degree error",f"{best.mean_error_deg:.2f}°")
+            st.write(" · ".join(f"{g}: {best[g]}" for g in groups))
+            st.markdown('<p class="muted">Candidate only. Not a final recommendation until coverage, sample size, and repeatability are assessed.</p></div>',unsafe_allow_html=True)
+        st.dataframe(rank,use_container_width=True,hide_index=True)
+        st.download_button("Export configuration ranking",csv_bytes(rank),"pilot_configuration_ranking.csv","text/csv")
+    else: st.info("No summary degree error available for ranking.")
 
-st.divider()
-st.header("Kualitas akuisisi dari raw CSV")
-if raw_filtered.empty:
-    st.info("Unggah CSV raw kalibrasi/test untuk melihat kualitas akuisisi.")
-else:
-    valid_col = first_col(raw_filtered, ["face_valid"])
-    valid_pct = 100 * bool_series(raw_filtered[valid_col]).mean() if valid_col else math.nan
-    fixation_col = first_col(raw_filtered, ["fixation_after_onset"])
-    fixation_n = int(bool_series(raw_filtered[fixation_col]).sum()) if fixation_col else None
-    det_mean = raw_filtered.detection_ms.mean() if "detection_ms" in raw_filtered.columns else math.nan
-    q = st.columns(4)
-    q[0].metric("Raw frames", f"{len(raw_filtered):,}")
-    q[1].metric("Face valid", f"{valid_pct:.1f}%" if math.isfinite(valid_pct) else "—")
-    q[2].metric("Fixation after onset", f"{fixation_n:,}" if fixation_n is not None else "—")
-    q[3].metric("Mean detection time", f"{det_mean:.2f} ms" if math.isfinite(det_mean) else "—")
+with t_point:
+    st.markdown("### Spatial error")
+    if not frames.empty and "point_id" in frames and "frame_error_deg" in frames:
+        points=frames.groupby("point_id",dropna=False).agg(frames=("frame_error_deg","count"),mean_error_deg=("frame_error_deg","mean"),median_error_deg=("frame_error_deg","median")).reset_index()
+        fig=px.scatter(points,x="point_id",y="mean_error_deg",size="frames",hover_data=["median_error_deg"],labels={"point_id":"Test point","mean_error_deg":"Mean error (°)"},template="plotly_dark")
+        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig,use_container_width=True)
+        if {"target_x","target_y","predicted_gaze_x","predicted_gaze_y"}.issubset(frames.columns):
+            fig2=px.scatter(frames,x="target_x",y="target_y",color="frame_error_deg",labels={"target_x":"Ground truth X","target_y":"Ground truth Y"},template="plotly_dark")
+            fig2.add_scatter(x=frames.predicted_gaze_x,y=frames.predicted_gaze_y,mode="markers",name="Model prediction",marker=dict(symbol="x"))
+            fig2.update_yaxes(autorange="reversed")
+            fig2.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig2,use_container_width=True)
+        st.dataframe(points,use_container_width=True,hide_index=True)
+    else: st.info("Frame-level data requires point_id and frame_error_deg.")
 
-    if "participant_id" in raw_filtered.columns:
-        camera = first_col(raw_filtered, ["camera_label", "camera_id"])
-        group = ["participant_id"] + ([camera] if camera else [])
-        agg = {"raw_frames": ("participant_id", "size")}
-        if valid_col: agg["face_valid_pct"] = (valid_col, lambda s: 100 * bool_series(s).mean())
-        if "detection_ms" in raw_filtered.columns: agg["mean_detection_ms"] = ("detection_ms", "mean")
-        for src, dst in [
-            ("measured_delivered_frame_rate_fps", "delivered_fps"),
-            ("requested_frame_rate_fps", "requested_fps"),
-            ("track_settings_frame_rate_fps", "actual_track_fps"),
-            ("screen_width_cm", "screen_width_cm"),
-            ("viewing_distance_cm", "actual_viewing_distance_cm"),
-            ("requested_video_w", "requested_width_px"),
-            ("requested_video_h", "requested_height_px"),
-            ("track_settings_video_w", "actual_width_px"),
-            ("track_settings_video_h", "actual_height_px"),
-        ]:
-            if src in raw_filtered.columns: agg[dst] = (src, "mean")
-        raw_summary = raw_filtered.groupby(group, dropna=False).agg(**agg).reset_index()
-        st.dataframe(raw_summary, use_container_width=True, hide_index=True)
-        st.download_button("Unduh ringkasan kualitas akuisisi", csv_bytes(raw_summary),
-                          "eye_tracking_acquisition_quality_summary.csv", "text/csv")
+with t_frame:
+    st.markdown("### Prediction audit")
+    if not frames.empty:
+        show=[c for c in ["participant_id","camera_label","scenario_id","test_session_id","timestamp_ms","point_id","target_x","target_y","predicted_gaze_x","predicted_gaze_y","frame_error_deg","prediction_valid","model_version"] if c in frames]
+        st.dataframe(frames[show] if show else frames,use_container_width=True,hide_index=True)
+        st.download_button("Export frame-level predictions",csv_bytes(frames),"pilot_frame_level_predictions.csv","text/csv")
+    else: st.info("Frame-level prediction output is not available.")
 
-    if "timestamp_ms" in raw_filtered.columns and "participant_id" in raw_filtered.columns and "detection_ms" in raw_filtered.columns:
-        chart = raw_filtered.copy()
-        camera = first_col(chart, ["camera_label", "camera_id"])
-        chart["series"] = chart.participant_id.astype(str) + (" / " + chart[camera].astype(str) if camera else "")
-        st.plotly_chart(px.line(chart.sort_values("timestamp_ms"), x="timestamp_ms", y="detection_ms", color="series",
-                                labels={"timestamp_ms": "Timestamp (ms)", "detection_ms": "Detection time (ms)", "series": "Responden / kamera"}),
-                         use_container_width=True)
-    st.dataframe(raw_filtered, use_container_width=True, hide_index=True)
-    st.download_button("Unduh raw data terfilter", csv_bytes(raw_filtered),
-                      "eye_tracking_raw_data_filtered.csv", "text/csv")
+with t_acq:
+    st.markdown("### Acquisition diagnostics")
+    st.caption("Supporting camera-input quality only. These metrics do not calculate model degree error.")
+    if not raw_files: st.info("Upload raw acquisition CSV in the sidebar to inspect diagnostics.")
+    else:
+        rawparts=[]
+        for f in raw_files:
+            try: rawparts.append(read_csv(f))
+            except Exception as e: st.warning(f"Cannot read {f.name}: {e}")
+        if rawparts:
+            raw=pd.concat(rawparts,ignore_index=True,sort=False)
+            numeric(raw,["detection_ms","measured_delivered_frame_rate_fps","track_settings_frame_rate_fps"])
+            face=first_col(raw,["face_valid"])
+            facepct=100*raw[face].astype(str).str.lower().isin(["true","1","yes","y"]).mean() if face else math.nan
+            detect=float(raw.detection_ms.mean()) if "detection_ms" in raw and raw.detection_ms.notna().any() else math.nan
+            fpscol=first_col(raw,["measured_delivered_frame_rate_fps","track_settings_frame_rate_fps"])
+            fps=float(raw[fpscol].mean()) if fpscol and raw[fpscol].notna().any() else math.nan
+            a,b,c=st.columns(3)
+            a.metric("Raw frames",f"{len(raw):,}")
+            b.metric("Face-valid rate",fmt(facepct,"%"))
+            c.metric("Mean detection time",fmt(detect," ms"))
+            if fpscol: st.metric("Delivered frame rate",fmt(fps," FPS"))
+            st.dataframe(raw,use_container_width=True,hide_index=True)
+            st.download_button("Export raw acquisition diagnostics",csv_bytes(raw),"pilot_raw_acquisition.csv","text/csv")
 
-with st.expander("Definisi metrik dan batas interpretasi"):
+with st.expander("Metric definitions & research cautions"):
     st.markdown("""
-    - Gaze error (°) adalah frame_error_deg hasil aplikasi terhadap target test grid, memakai setup fisik layar/jarak sesi.
-    - Point hit rate menilai median prediksi pada tiap titik test terhadap region target.
-    - Frame hit rate adalah persentase frame test valid yang prediksinya berada di region target.
-    - Face valid adalah proporsi frame yang lolos gatekeeper.
-    - Fixation after onset menandai fixation yang dimulai setelah target muncul.
-    - Bandingkan kamera pada kondisi jarak, resolusi, FPS, dan layar yang sebanding.
-    - Error terhadap Tobii Spark memerlukan CSV Tobii yang dipasangkan berdasarkan timestamp; metrik ini bukan error terhadap Tobii.
+    - Degree error must be computed from trained-model predictions against synchronized ground truth.
+    - If frame_error_deg exists, overall error uses frame-level values; otherwise the summary mean is used.
+    - Configuration ranking is exploratory for the currently filtered data, not a statistical conclusion.
+    - Face-valid rate, FPS, and detection time describe acquisition quality; they do not replace gaze evaluation.
+    - Compare equivalent respondent, distance, lighting, resolution, FPS, screen, and ground-truth conditions.
+    - Verify the degree-conversion method and timestamp-pairing tolerance against the research protocol.
     """)
