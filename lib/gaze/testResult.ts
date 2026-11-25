@@ -90,7 +90,7 @@ export function computeTestRegionResult(
         predictedY: prediction[1],
         predictedRegion: regionOf(prediction[0], prediction[1], grid),
         hit: hitCentered(entry.target, prediction, grid),
-        errorDeg: angularErrorDeg(target, prediction, setup),
+        errorDeg: angularErrorDeg(entry.target, prediction, setup),
       });
     }
   }
