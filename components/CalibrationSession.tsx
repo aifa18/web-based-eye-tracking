@@ -441,19 +441,6 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
           distanceConditionCm,
           actualDistanceCm,
           screenWidthCm: widthCm,
-        participantId: pid,
-        layoutId: layout.id,
-        cameraLabels: selectedOptions.map((option) => option?.label ?? ""),
-        requestedWidth: resolution === "720p" ? 1280 : 1920,
-        requestedHeight: resolution === "720p" ? 720 : 1080,
-        requestedFrameRate: frameRate,
-        pairedSessionId: sessionRef.current.sessionId,
-        screenW: window.screen.width,
-        screenH: window.screen.height,
-        devicePixelRatio: window.devicePixelRatio,
-        screenWidthCm: widthCm,
-        viewingDistanceConditionCm: distanceConditionCm,
-        viewingDistanceCm: actualDistanceCm,
         }));
       } catch (error) {
         console.warn("Pengaturan kamera sesi tidak dapat disimpan:", error);
