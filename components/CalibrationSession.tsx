@@ -88,6 +88,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const [cameraOptions, setCameraOptions] = useState<CameraOption[]>([]);
   const [selectedCameraIds, setSelectedCameraIds] = useState<string[]>([]);
   const [pairedCameraIds, setPairedCameraIds] = useState<string[]>([]);
+  const [pairedTrackSettings, setPairedTrackSettings] = useState<Record<string, CameraCaptureSettings>>({});
   const [pairedSetupAvailable, setPairedSetupAvailable] = useState(!isTest || !pairedSessionId);
   const [cameraValid, setCameraValid] = useState<Record<string, boolean>>({});
   const [cameraSettings, setCameraSettings] = useState<Record<string, CameraCaptureSettings>>({});
@@ -164,15 +165,25 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
               const setup = JSON.parse(saved) as {
                 cameraIds?: string[]; resolution?: "720p" | "1080p"; frameRate?: 30 | 60;
                 distanceConditionCm?: number; actualDistanceCm?: number;
+                trackSettings?: { deviceId: string; settings: CameraCaptureSettings }[];
               };
               const originalIds = setup.cameraIds ?? [];
               const allOriginalAvailable = originalIds.length === CAMERA_COUNT &&
                 new Set(originalIds).size === CAMERA_COUNT &&
                 originalIds.every((id) => available.some((camera) => camera.deviceId === id));
               setPairedCameraIds(originalIds);
-              setPairedSetupAvailable(allOriginalAvailable);
+              const trackSettings = Object.fromEntries(
+                (setup.trackSettings ?? []).map((item) => [item.deviceId, item.settings])
+              ) as Record<string, CameraCaptureSettings>;
+              setPairedTrackSettings(trackSettings);
+              const trackSettingsComplete = originalIds.length === CAMERA_COUNT &&
+                originalIds.every((id) => typeof trackSettings[id]?.width === "number" &&
+                  typeof trackSettings[id]?.height === "number");
+              const pairedConfigurationAvailable = allOriginalAvailable && trackSettingsComplete;
+              setPairedSetupAvailable(pairedConfigurationAvailable);
               if (allOriginalAvailable) defaults = originalIds;
-              else pairedSetupError = "Kamera yang digunakan saat kalibrasi tidak semuanya tersedia. Sambungkan kembali perangkat yang sama dan urutkan sesuai sesi kalibrasi.";
+              if (!allOriginalAvailable) pairedSetupError = "Kamera yang digunakan saat kalibrasi tidak semuanya tersedia. Sambungkan kembali perangkat yang sama dan urutkan sesuai sesi kalibrasi.";
+              else if (!trackSettingsComplete) pairedSetupError = "Data pengaturan aktual kamera dari kalibrasi tidak tersedia. Ulangi kalibrasi dengan versi aplikasi terbaru.";
               if (setup.resolution === "720p" || setup.resolution === "1080p") setResolution(setup.resolution);
               if (setup.frameRate === 30 || setup.frameRate === 60) setFrameRate(setup.frameRate);
               if (!prefill?.viewingDistanceCm && (setup.distanceConditionCm === 45 || setup.distanceConditionCm === 55 || setup.distanceConditionCm === 65)) {
@@ -215,7 +226,16 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const pairedCameraOrderValid = !isTest || !pairedSessionId ||
     (pairedSetupAvailable && pairedCameraIds.length === CAMERA_COUNT &&
       selectedCameraIds.every((id, index) => id === pairedCameraIds[index]));
-  const allCamerasValid = selectedUnique && pairedCameraOrderValid &&
+  const pairedTrackSettingsMatch = !isTest || !pairedSessionId ||
+    selectedCameraIds.every((deviceId) => {
+      const expected = pairedTrackSettings[deviceId];
+      const actual = cameraSettings[deviceId];
+      if (!expected || !actual || expected.width == null || expected.height == null ||
+        actual.width !== expected.width || actual.height !== expected.height) return false;
+      return expected.frameRate == null || actual.frameRate == null ||
+        Math.abs(actual.frameRate - expected.frameRate) <= 1;
+    });
+  const allCamerasValid = selectedUnique && pairedCameraOrderValid && pairedTrackSettingsMatch &&
     selectedCameraIds.every((id) => cameraValid[id] === true);
 
   const handleCameraSettings = useCallback((deviceId: string, settings: CameraCaptureSettings) => {
@@ -441,6 +461,10 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
           distanceConditionCm,
           actualDistanceCm,
           screenWidthCm: widthCm,
+          trackSettings: selectedCameraIds.map((deviceId) => ({
+            deviceId,
+            settings: cameraSettingsRef.current[deviceId] ?? {},
+          })),
         }));
       } catch (error) {
         console.warn("Pengaturan kamera sesi tidak dapat disimpan:", error);
@@ -569,6 +593,9 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
             )}
             {isTest && pairedSessionId && !pairedCameraOrderValid && (
               <p className="mb-3 text-left text-xs text-red-600">Untuk evaluasi berpasangan, pilih kamera yang sama dalam urutan yang sama seperti sesi kalibrasi.</p>
+            )}
+            {isTest && pairedSessionId && pairedCameraOrderValid && !pairedTrackSettingsMatch && (
+              <p className="mb-3 text-left text-xs text-red-600">Pengaturan aktual stream tidak sama dengan kalibrasi. Pastikan kamera menggunakan resolusi dan FPS aktual yang sama.</p>
             )}
             <div className="mb-4 grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
               {selectedOptions.map((option, index) => option ? (
