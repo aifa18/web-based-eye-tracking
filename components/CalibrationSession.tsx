@@ -90,6 +90,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const [pairedCameraIds, setPairedCameraIds] = useState<string[]>([]);
   const [pairedSetupAvailable, setPairedSetupAvailable] = useState(!isTest || !pairedSessionId);
   const [cameraValid, setCameraValid] = useState<Record<string, boolean>>({});
+  const [cameraSettings, setCameraSettings] = useState<Record<string, CameraCaptureSettings>>({});
   const [cameraError, setCameraError] = useState<string | null>(null);
 
   const [screenWidthCm, setScreenWidthCm] = useState(
@@ -219,6 +220,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
 
   const handleCameraSettings = useCallback((deviceId: string, settings: CameraCaptureSettings) => {
     cameraSettingsRef.current[deviceId] = settings;
+    setCameraSettings((previous) => ({ ...previous, [deviceId]: settings }));
   }, []);
 
   const handleFaceValid = useCallback((cameraId: string, isValid: boolean) => {
@@ -563,11 +565,17 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
             {!selectedUnique && (
               <p className="mb-3 text-left text-xs text-red-600">Pilih empat perangkat kamera yang berbeda.</p>
             )}
+            {isTest && pairedSessionId && !pairedCameraOrderValid && (
+              <p className="mb-3 text-left text-xs text-red-600">Untuk evaluasi berpasangan, pilih kamera yang sama dalam urutan yang sama seperti sesi kalibrasi.</p>
+            )}
             <div className="mb-4 grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
               {selectedOptions.map((option, index) => option ? (
                 <div key={option.deviceId} className="rounded-lg bg-gray-50 p-2 text-left text-xs">
                   <span className="font-semibold">Kamera {index + 1}:</span>{" "}
                   {cameraValid[option.deviceId] ? <span className="text-green-700">wajah valid</span> : <span className="text-amber-700">menunggu validasi wajah</span>}
+                  <p className="mt-1 text-gray-500">
+                    Stream: {cameraSettings[option.deviceId]?.width ?? "-"}×{cameraSettings[option.deviceId]?.height ?? "-"} / {cameraSettings[option.deviceId]?.frameRate?.toFixed(1) ?? "-"} FPS
+                  </p>
                 </div>
               ) : null)}
             </div>
