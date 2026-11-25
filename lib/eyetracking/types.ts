@@ -57,7 +57,8 @@ export type CalibrationLayout = {
 export type SetupPrefill = {
   participantId?: string;
   screenWidthCm?: string;
-  viewingDistanceCm?: string;
+  viewingDistanceCm?: string; // distance condition label: 45/55/65
+  actualViewingDistanceCm?: string; // measured face-to-screen distance
   pairedSessionId?: string;
 };
 
@@ -88,7 +89,8 @@ export type SessionInfo = {
   screenH: number;
   devicePixelRatio: number;
   screenWidthCm: number;     // lebar fisik area layar
-  viewingDistanceCm: number; // jarak mata ke layar
+  viewingDistanceConditionCm: number; // label kondisi: 45/55/65
+  viewingDistanceCm: number; // jarak aktual mata ke layar, untuk perhitungan sudut
 };
 
 // Hasil detektor fixation (I-DT) untuk satu frame
