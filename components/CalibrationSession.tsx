@@ -4,7 +4,7 @@
 // detector, dan log setiap kamera tetap independen.
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import WebcamFaceLandmarker, { enumerateCameras } from "@/components/WebcamFaceLandmarker";
+import WebcamFaceLandmarker, { enumerateCameras, type CameraOption } from "@/components/WebcamFaceLandmarker";
 import CalibrationDot from "@/components/CalibrationDot";
 import SessionSummaryCard from "@/components/SessionSummaryCard";
 import TestRegionResultView from "@/components/TestRegionResultView";
@@ -21,6 +21,7 @@ import {
   RANDOMIZE_ORDER,
   REQUIRE_FULLSCREEN,
   TRANSITION_MS,
+  viewingDistanceRangeOf,
 } from "@/lib/eyetracking/config";
 import { buildCalibrationCsv, downloadCsv } from "@/lib/eyetracking/csv";
 import { FixationDetector } from "@/lib/eyetracking/fixation";
@@ -57,9 +58,13 @@ type CalibrationSessionProps = {
 const CAMERA_COUNT = 4;
 const CAMERA_IDS = ["camera-1", "camera-2", "camera-3", "camera-4"] as const;
 
+type CameraCaptureSettings = { width?: number; height?: number; frameRate?: number };
+
 type CameraLog = {
   cameraId: string;
+  deviceId: string;
   label: string;
+  captureSettings: CameraCaptureSettings;
   rows: LogRow[];
 };
 
@@ -90,15 +95,20 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const [viewingDistanceCm, setViewingDistanceCm] = useState(
     prefill?.viewingDistanceCm ?? PHYSICAL_SETUP.defaultViewingDistanceCm.toString()
   );
+  const [actualViewingDistanceCm, setActualViewingDistanceCm] = useState(
+    prefill?.actualViewingDistanceCm ?? ""
+  );
   const [resolution, setResolution] = useState<"720p" | "1080p">("720p");
   const [frameRate, setFrameRate] = useState<30 | 60>(30);
 
   const recDist = PHYSICAL_SETUP.recommendedViewingDistanceCm;
-  const typedDistance = Number(viewingDistanceCm.replace(",", "."));
+  const distanceConditionCm = Number(viewingDistanceCm.replace(",", "."));
+  const distanceRange = viewingDistanceRangeOf(distanceConditionCm);
+  const typedActualDistance = Number(actualViewingDistanceCm.replace(",", "."));
   const distanceOutsideProtocol =
-    viewingDistanceCm.trim() !== "" &&
-    Number.isFinite(typedDistance) &&
-    (typedDistance < recDist.min || typedDistance > recDist.max);
+    actualViewingDistanceCm.trim() !== "" &&
+    (!distanceRange || !Number.isFinite(typedActualDistance) ||
+      typedActualDistance < distanceRange.min || typedActualDistance > distanceRange.max);
 
   const [downloaded, setDownloaded] = useState(false);
   const [testGridHref, setTestGridHref] = useState<string | null>(null);
@@ -118,6 +128,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const sessionRef = useRef<SessionInfo | null>(null);
   const fixationDetectorsRef = useRef<Map<string, FixationDetector>>(new Map());
   const cameraValidRef = useRef<Record<string, boolean>>({});
+  const cameraSettingsRef = useRef<Record<string, CameraCaptureSettings>>({});
 
   const changeStage = (next: Stage) => {
     stageRef.current = next;
@@ -181,6 +192,10 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const allCamerasValid = selectedUnique &&
     selectedCameraIds.every((id) => cameraValid[id] === true);
 
+  const handleCameraSettings = useCallback((deviceId: string, settings: CameraCaptureSettings) => {
+    cameraSettingsRef.current[deviceId] = settings;
+  }, []);
+
   const handleFaceValid = useCallback((cameraId: string, isValid: boolean) => {
     cameraValidRef.current = { ...cameraValidRef.current, [cameraId]: isValid };
     setCameraValid((previous) => ({ ...previous, [cameraId]: isValid }));
@@ -228,7 +243,8 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
         pid: session.participantId,
         cal: session.sessionId,
         w: String(session.screenWidthCm),
-        d: String(session.viewingDistanceCm),
+        d: String(session.viewingDistanceConditionCm),
+        da: String(session.viewingDistanceCm),
       });
       setTestGridHref(`/test-grid?${q.toString()}`);
     }
@@ -334,10 +350,22 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
       return;
     }
 
-    const distanceCm = Number(viewingDistanceCm.replace(",", "."));
-    const vd = PHYSICAL_SETUP.viewingDistanceCm;
-    if (!PHYSICAL_SETUP.viewingDistanceOptionsCm.includes(distanceCm as 45 | 55 | 65)) {
-      setMessage(`Isi jarak mata ke layar dalam cm (${vd.min}–${vd.max} cm).`);
+    const distanceConditionCm = Number(viewingDistanceCm.replace(",", "."));
+    const distanceRange = viewingDistanceRangeOf(distanceConditionCm);
+    const actualDistanceCm = Number(actualViewingDistanceCm.replace(",", "."));
+    if (!distanceRange) {
+      setMessage("Pilih kondisi jarak 45, 55, atau 65 cm.");
+      return;
+    }
+    if (!actualViewingDistanceCm.trim() || !Number.isFinite(actualDistanceCm) ||
+      actualDistanceCm < distanceRange.min || actualDistanceCm > distanceRange.max) {
+      setMessage(`Masukkan jarak aktual wajah ke layar dalam rentang ${distanceRange.min}–${distanceRange.max} cm untuk kondisi ${distanceConditionCm} cm.`);
+      return;
+    }
+    if (isTest && pairedSessionId && prefill?.actualViewingDistanceCm &&
+      (distanceConditionCm !== Number(prefill.viewingDistanceCm) ||
+        actualDistanceCm !== Number(prefill.actualViewingDistanceCm))) {
+      setMessage("Untuk evaluasi berpasangan, gunakan kondisi dan jarak aktual yang sama dengan sesi kalibrasi.");
       return;
     }
 
@@ -357,7 +385,9 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
 
     const logs = selectedOptions.map((option, index) => ({
       cameraId: CAMERA_IDS[index],
+      deviceId: selectedCameraIds[index],
       label: option?.label ?? `Kamera ${index + 1}`,
+      captureSettings: cameraSettingsRef.current[selectedCameraIds[index]] ?? {},
       rows: [] as LogRow[],
     }));
     cameraLogsRef.current = logs;
@@ -372,8 +402,12 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
       screenW: window.screen.width,
       screenH: window.screen.height,
       devicePixelRatio: window.devicePixelRatio,
+      requestedWidth: resolution === "720p" ? 1280 : 1920,
+      requestedHeight: resolution === "720p" ? 720 : 1080,
+      requestedFrameRate: frameRate,
       screenWidthCm: widthCm,
-      viewingDistanceCm: distanceCm,
+      viewingDistanceConditionCm: distanceConditionCm,
+      viewingDistanceCm: actualDistanceCm,
     };
     if (!isTest) {
       try {
@@ -381,6 +415,8 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
           cameraIds: selectedCameraIds,
           resolution,
           frameRate,
+          distanceConditionCm,
+          actualDistanceCm,
         }));
       } catch (error) {
         console.warn("Pengaturan kamera sesi tidak dapat disimpan:", error);
@@ -411,7 +447,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     setDownloaded(false);
     setTestGridHref(null);
     setGazeNote(null);
-    setRegionResult(null);
+    setRegionResults({});
     setDemoHref(null);
     changeStage("setup");
   };
@@ -426,7 +462,13 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     cameraLogsRef.current.forEach((camera) => {
       if (camera.rows.length === 0) return;
       downloadCsv(
-        buildCalibrationCsv(camera.rows, session),
+        buildCalibrationCsv(camera.rows, session, {
+          cameraId: camera.cameraId,
+          cameraLabel: camera.label,
+          actualTrackWidth: camera.captureSettings.width,
+          actualTrackHeight: camera.captureSettings.height,
+          actualTrackFrameRate: camera.captureSettings.frameRate,
+        }),
         csvFileName(prefix, session.layoutId, session.sessionId, camera.cameraId)
       );
     });
@@ -453,6 +495,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
                 requestedFrameRate={frameRate}
                 showPreview={stage === "setup"}
                 onFaceValidChange={handleFaceValid}
+                onCameraSettings={handleCameraSettings}
                 onFrame={handleFrame}
               />
             );
@@ -499,7 +542,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
             {!selectedUnique && (
               <p className="mb-3 text-left text-xs text-red-600">Pilih empat perangkat kamera yang berbeda.</p>
             )}
-            <div className="mb-4 grid gap-3 md:grid-cols-3">
+            <div className="mb-4 grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
               {selectedOptions.map((option, index) => option ? (
                 <div key={option.deviceId} className="rounded-lg bg-gray-50 p-2 text-left text-xs">
                   <span className="font-semibold">Kamera {index + 1}:</span>{" "}
@@ -519,22 +562,29 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
               <input type="text" value={participantId} onChange={(e) => setParticipantId(e.target.value)} placeholder="contoh: P01" className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
             </label>
 
-            <div className="mb-4 grid grid-cols-2 gap-3 text-left">
+            <div className="mb-4 grid grid-cols-1 gap-3 text-left sm:grid-cols-3">
               <label className="block text-sm font-medium text-gray-700">
                 Lebar layar (cm)
                 <input type="number" inputMode="decimal" step="0.1" value={screenWidthCm} onChange={(e) => setScreenWidthCm(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
               </label>
               <label className="block text-sm font-medium text-gray-700">
-                Jarak mata–layar (cm)
+                Kondisi jarak
                 <select value={viewingDistanceCm} onChange={(e) => setViewingDistanceCm(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
-                  {PHYSICAL_SETUP.viewingDistanceOptionsCm.map((distance) => <option key={distance} value={distance}>{distance} cm</option>)}
+                  {PHYSICAL_SETUP.viewingDistanceOptionsCm.map((distance) => {
+                    const range = viewingDistanceRangeOf(distance);
+                    return <option key={distance} value={distance}>{distance} cm (rentang {range?.min}–{range?.max} cm)</option>;
+                  })}
                 </select>
+              </label>
+              <label className="block text-sm font-medium text-gray-700">
+                Jarak aktual wajah–layar (cm)
+                <input type="number" inputMode="decimal" step="0.1" value={actualViewingDistanceCm} onChange={(e) => setActualViewingDistanceCm(e.target.value)} placeholder={distanceRange ? `${distanceRange.min}–${distanceRange.max}` : "ukur dalam cm"} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
               </label>
             </div>
 
             {distanceOutsideProtocol && (
               <p className="mb-4 rounded-lg bg-amber-50 p-2 text-left text-xs text-amber-900">
-                Jarak {viewingDistanceCm} cm di luar protokol ({recDist.min}–{recDist.max} cm). Sesi tetap bisa dimulai, tetapi sebaiknya atur ulang posisi duduk.
+                Jarak aktual {actualViewingDistanceCm} cm tidak sesuai rentang kondisi {viewingDistanceCm} cm ({distanceRange?.min}–{distanceRange?.max} cm).
               </p>
             )}
             <div className="mb-4 grid grid-cols-2 gap-3 text-left">
@@ -554,14 +604,14 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
               <p className="mb-1 font-semibold">Protokol pengukuran</p>
               <ol className="list-decimal space-y-0.5 pl-4">
                 <li>Lebar layar: ukur area tampilan (tanpa bingkai) dari kiri ke kanan.</li>
-                <li>Atur jarak mata ke layar sesuai pilihan 45, 55, atau 65 cm.</li>
+                <li>Pilih kondisi jarak 45, 55, atau 65 cm, lalu ukur jarak aktual wajah ke layar dan masukkan nilainya dalam rentang ±5 cm.</li>
                 <li>Atur resolusi dan FPS sesuai kombinasi pengujian.</li>
                 <li>Pertahankan posisi duduk dan kepala selama seluruh sesi.</li>
               </ol>
             </div>
 
             {cameraValidRef.current && allCamerasValid ? (
-              <p className="mb-3 font-medium text-green-600">✓ Ketiga kamera mendeteksi wajah dengan valid</p>
+              <p className="mb-3 font-medium text-green-600">✓ Keempat kamera mendeteksi wajah dengan valid</p>
             ) : (
               <p className="mb-3 font-medium text-amber-700">Pastikan wajah valid pada keempat preview kamera</p>
             )}
@@ -608,7 +658,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
           nextHref={(isTest ? demoHref : testGridHref) ?? undefined}
           nextLabel={isTest ? "Coba Demo Region" : "Lanjut ke Test Grid"}
         >
-          <div className="mb-4 grid gap-3 md:grid-cols-3">
+          <div className="mb-4 grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
             {cameraLogsRef.current.map((camera) => (
               <div key={camera.cameraId} className="rounded-lg border border-gray-200 p-3 text-left text-sm">
                 <p className="font-semibold">{camera.label}</p>
@@ -623,7 +673,13 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
                     if (!session || camera.rows.length === 0) return;
                     const prefix = isTest ? "test" : "calibration";
                     downloadCsv(
-                      buildCalibrationCsv(camera.rows, session),
+                      buildCalibrationCsv(camera.rows, session, {
+                        cameraId: camera.cameraId,
+                        cameraLabel: camera.label,
+                        actualTrackWidth: camera.captureSettings.width,
+                        actualTrackHeight: camera.captureSettings.height,
+                        actualTrackFrameRate: camera.captureSettings.frameRate,
+                      }),
                       csvFileName(prefix, session.layoutId, session.sessionId, camera.cameraId)
                     );
                   }}
