@@ -28,9 +28,23 @@ export type PointRegionResult = {
   errorDeg: number;
 };
 
+export type FrameGazePrediction = {
+  frameIndex: number;
+  timestampMs: number;
+  pointId: number;
+  targetX: number;
+  targetY: number;
+  predictedX: number;
+  predictedY: number;
+  predictedRegion: Region | null;
+  hit: boolean;
+  errorDeg: number;
+};
+
 export type TestRegionResult = {
   grid: RegionGrid;
   points: PointRegionResult[];
+  framePredictions: FrameGazePrediction[];
   pointHitPct: number;
   frameHitPct: number;
   meanErrorDeg: number;
@@ -54,6 +68,7 @@ export function computeTestRegionResult(
 ): TestRegionResult {
   // Frame yang dinilai: fase fixation + face_valid (sama dengan data latih).
   const byPoint = new Map<number, { target: [number, number]; preds: [number, number][] }>();
+  const framePredictions: FrameGazePrediction[] = [];
   for (const row of rows) {
     const entry = byPoint.get(row.point.pointId) ?? {
       target: [row.point.x, row.point.y] as [number, number],
@@ -62,7 +77,22 @@ export function computeTestRegionResult(
     byPoint.set(row.point.pointId, entry);
     if (!isTrainingRow(row)) continue;
     const f = frameFeatures(row.frame);
-    if (f) entry.preds.push(predictRidge(model, f));
+    if (f) {
+      const prediction = predictRidge(model, f);
+      entry.preds.push(prediction);
+      framePredictions.push({
+        frameIndex: row.frame.frameIndex,
+        timestampMs: row.frame.timestamp,
+        pointId: row.point.pointId,
+        targetX: row.point.x,
+        targetY: row.point.y,
+        predictedX: prediction[0],
+        predictedY: prediction[1],
+        predictedRegion: regionOf(prediction[0], prediction[1], grid),
+        hit: hitCentered(target, prediction, grid),
+        errorDeg: angularErrorDeg(target, prediction, setup),
+      });
+    }
   }
 
   let frameHits = 0;
@@ -95,6 +125,7 @@ export function computeTestRegionResult(
   return {
     grid,
     points,
+    framePredictions,
     pointHitPct: judged.length ? (100 * judged.filter((p) => p.hit).length) / judged.length : NaN,
     frameHitPct: nFrames ? (100 * frameHits) / nFrames : NaN,
     meanErrorDeg: nFrames ? errSum / nFrames : NaN,
