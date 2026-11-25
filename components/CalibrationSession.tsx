@@ -22,6 +22,7 @@ import {
   REQUIRE_FULLSCREEN,
   TRANSITION_MS,
   viewingDistanceRangeOf,
+  isViewingDistanceWithinRange,
 } from "@/lib/eyetracking/config";
 import { buildCalibrationCsv, downloadCsv } from "@/lib/eyetracking/csv";
 import { FixationDetector } from "@/lib/eyetracking/fixation";
@@ -101,14 +102,11 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const [resolution, setResolution] = useState<"720p" | "1080p">("720p");
   const [frameRate, setFrameRate] = useState<30 | 60>(30);
 
-  const recDist = PHYSICAL_SETUP.recommendedViewingDistanceCm;
   const distanceConditionCm = Number(viewingDistanceCm.replace(",", "."));
   const distanceRange = viewingDistanceRangeOf(distanceConditionCm);
   const typedActualDistance = Number(actualViewingDistanceCm.replace(",", "."));
-  const distanceOutsideProtocol =
-    actualViewingDistanceCm.trim() !== "" &&
-    (!distanceRange || !Number.isFinite(typedActualDistance) ||
-      typedActualDistance < distanceRange.min || typedActualDistance > distanceRange.max);
+  const distanceOutsideProtocol = actualViewingDistanceCm.trim() !== "" &&
+    !isViewingDistanceWithinRange(distanceConditionCm, typedActualDistance);
 
   const [downloaded, setDownloaded] = useState(false);
   const [testGridHref, setTestGridHref] = useState<string | null>(null);
@@ -127,7 +125,6 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const cameraLogsRef = useRef<CameraLog[]>([]);
   const sessionRef = useRef<SessionInfo | null>(null);
   const fixationDetectorsRef = useRef<Map<string, FixationDetector>>(new Map());
-  const cameraValidRef = useRef<Record<string, boolean>>({});
   const cameraSettingsRef = useRef<Record<string, CameraCaptureSettings>>({});
 
   const changeStage = (next: Stage) => {
@@ -197,7 +194,6 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   }, []);
 
   const handleFaceValid = useCallback((cameraId: string, isValid: boolean) => {
-    cameraValidRef.current = { ...cameraValidRef.current, [cameraId]: isValid };
     setCameraValid((previous) => ({ ...previous, [cameraId]: isValid }));
   }, []);
 
@@ -357,8 +353,8 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
       setMessage("Pilih kondisi jarak 45, 55, atau 65 cm.");
       return;
     }
-    if (!actualViewingDistanceCm.trim() || !Number.isFinite(actualDistanceCm) ||
-      actualDistanceCm < distanceRange.min || actualDistanceCm > distanceRange.max) {
+    if (!actualViewingDistanceCm.trim() ||
+      !isViewingDistanceWithinRange(distanceConditionCm, actualDistanceCm)) {
       setMessage(`Masukkan jarak aktual wajah ke layar dalam rentang ${distanceRange.min}–${distanceRange.max} cm untuk kondisi ${distanceConditionCm} cm.`);
       return;
     }
@@ -610,7 +606,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
               </ol>
             </div>
 
-            {cameraValidRef.current && allCamerasValid ? (
+            {allCamerasValid ? (
               <p className="mb-3 font-medium text-green-600">✓ Keempat kamera mendeteksi wajah dengan valid</p>
             ) : (
               <p className="mb-3 font-medium text-amber-700">Pastikan wajah valid pada keempat preview kamera</p>
