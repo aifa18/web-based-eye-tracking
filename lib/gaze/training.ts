@@ -41,13 +41,9 @@ export function buildTrainingSet(rows: LogRow[], sessionId: string, layoutId: st
   return { version: 1, sessionId, layoutId, X, Y };
 }
 
-// Simpan; data sesi kalibrasi lain di tab ini dihapus agar tidak menumpuk.
+// Simpan satu set tanpa menghapus set kamera lain pada sesi yang sama.
 export function saveTrainingSet(set: TrainingSet): boolean {
   try {
-    for (let i = sessionStorage.length - 1; i >= 0; i--) {
-      const k = sessionStorage.key(i);
-      if (k?.startsWith(KEY_PREFIX)) sessionStorage.removeItem(k);
-    }
     sessionStorage.setItem(trainingKey(set.sessionId), JSON.stringify(set));
     return true;
   } catch (err) {

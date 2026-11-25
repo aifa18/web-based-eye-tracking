@@ -22,6 +22,7 @@ export default async function TestGridPage({ searchParams }: TestGridPageProps) 
         pairedSessionId: first(sp.cal),
         screenWidthCm: first(sp.w),
         viewingDistanceCm: first(sp.d),
+        actualViewingDistanceCm: first(sp.da),
       }}
     />
   );

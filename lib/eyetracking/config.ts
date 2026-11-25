@@ -101,16 +101,36 @@ export const PHYSICAL_SETUP = {
   // 35 cm = laptop penelitian ASUS Vivobook 16 (V3607VU), 16" 16:9, 1920x1080.
   // Diukur dengan meteran: area layar menyala 35 x 20 cm.
   defaultScreenWidthCm: 35 as number | null,
-  // Protokol jarak mata ke layar (cm): tiap peserta direkam di 45, 50, 55,
-  // dan 60 cm. Jarak sebenarnya diukur dan dicatat per sesi.
-  // Semua jarak masih di dalam jarak kerja Tobii Pro Spark (45-95 cm).
-  recommendedViewingDistanceCm: { min: 45, max: 60 },
-  // Nilai awal di form (tengah rentang).
-  defaultViewingDistanceCm: 50,
+  // Protokol jarak mata ke layar (cm) sesuai rancangan pengujian.
+  recommendedViewingDistanceCm: { min: 40, max: 70 },
+  viewingDistanceOptionsCm: [45, 55, 65] as const,
+  // Setiap label adalah kondisi jarak dengan toleransi ±5 cm.
+  viewingDistanceRanges: {
+    45: { min: 40, max: 50 },
+    55: { min: 50, max: 60 },
+    65: { min: 60, max: 70 },
+  },
+  // Nilai awal label kondisi jarak.
+  defaultViewingDistanceCm: 55,
   // Rentang wajar untuk validasi input (di luar ini input ditolak).
   screenWidthCm: { min: 15, max: 100 },
   viewingDistanceCm: { min: 30, max: 120 },
 };
+
+export type ViewingDistanceConditionCm = 45 | 55 | 65;
+
+export function viewingDistanceRangeOf(conditionCm: number): { min: number; max: number } | null {
+  if (conditionCm !== 45 && conditionCm !== 55 && conditionCm !== 65) return null;
+  return PHYSICAL_SETUP.viewingDistanceRanges[conditionCm];
+}
+
+// Make adjacent ranges non-overlapping at the shared boundary: 45 cm includes
+// 40–50 cm; 55 cm is (50,60]; 65 cm is (60,70].
+export function isViewingDistanceWithinRange(conditionCm: number, actualCm: number): boolean {
+  const range = viewingDistanceRangeOf(conditionCm);
+  if (!range || !Number.isFinite(actualCm) || actualCm > range.max) return false;
+  return conditionCm === 45 ? actualCm >= range.min : actualCm > range.min;
+}
 
 // FIXATION (I-DT online kumulatif, lihat lib/eyetracking/fixation.ts)
 // Posisi iris diukur relatif terhadap sudut mata, dalam satuan "panjang mata".

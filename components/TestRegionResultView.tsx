@@ -24,6 +24,8 @@ export default function TestRegionResultView({ result, screenW, screenH }: TestR
         Model Ridge (parameter terkunci) dilatih dari kalibrasi sesi ini, lalu menebak arah
         pandangan selama test grid. Layar dibagi {cols}×{rows} region. Tebakan dianggap
         benar jika berada di dalam kotak seukuran 1 region yang berpusat di titik target.
+        Metrik ini membandingkan estimasi kamera dengan target grid, bukan langsung dengan Tobii Spark.
+        CSV evaluasi per-frame berisi koordinat gaze prediksi dan timestamp untuk dipasangkan dengan data Tobii.
       </p>
 
       <div className="mb-4 grid grid-cols-3 gap-3 text-sm">

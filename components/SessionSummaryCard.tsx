@@ -9,6 +9,7 @@ import type { SessionSummary } from "@/lib/eyetracking/types";
 type SessionSummaryCardProps = {
   title: string;
   summary: SessionSummary;
+  summaryLabel?: string;
   sessionId: string | undefined;
   onDownload: () => void;
   onReset: () => void;
@@ -26,6 +27,7 @@ type SessionSummaryCardProps = {
 export default function SessionSummaryCard({
   title,
   summary,
+  summaryLabel,
   sessionId,
   onDownload,
   onReset,
@@ -48,8 +50,9 @@ export default function SessionSummaryCard({
         <h1 className="mb-1 text-center text-2xl font-bold text-green-600">
           {title}
         </h1>
-        <p className="mb-6 text-center text-sm text-gray-500">
-          Sesi {sessionId}
+        <p className="mb-1 text-center text-sm text-gray-500">Sesi {sessionId}</p>
+        <p className="mb-6 text-center text-xs text-gray-500">
+          Ringkasan utama berasal dari {summaryLabel ?? "kamera pertama"}; metrik dan data tiap kamera ditampilkan di bawah.
         </p>
 
         <div className="mb-6 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">

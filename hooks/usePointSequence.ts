@@ -12,6 +12,7 @@ type UsePointSequenceOptions = {
   preStartDelayMs: number;
   // Dipanggil setelah titik terakhir selesai ditampilkan.
   onFinish: () => void;
+  onActivePoint?: (point: ActivePoint | null) => void;
 };
 
 // Menampilkan titik satu per satu dengan timer.
@@ -21,6 +22,7 @@ export function usePointSequence({
   pointDurationMs,
   preStartDelayMs,
   onFinish,
+  onActivePoint,
 }: UsePointSequenceOptions) {
   const [activeDot, setActiveDot] = useState<ActiveDot | null>(null);
 
@@ -29,9 +31,13 @@ export function usePointSequence({
   const timerRef = useRef<number | null>(null);
 
   const onFinishRef = useRef(onFinish);
+  const onActivePointRef = useRef(onActivePoint);
   useEffect(() => {
     onFinishRef.current = onFinish;
   }, [onFinish]);
+  useEffect(() => {
+    onActivePointRef.current = onActivePoint;
+  }, [onActivePoint]);
 
   const clearTimer = () => {
     if (timerRef.current !== null) {
@@ -57,6 +63,7 @@ export function usePointSequence({
       y: p.y / 100,
       onset: epochNow(),
     };
+    onActivePointRef.current?.(activePointRef.current);
 
     setActiveDot({ order: orderIdx + 1, x: p.x, y: p.y });
 
@@ -70,6 +77,7 @@ export function usePointSequence({
   const start = (order: CalibrationPoint[]) => {
     orderRef.current = order;
     activePointRef.current = null;
+    onActivePointRef.current?.(null);
     setActiveDot(null);
 
     timerRef.current = window.setTimeout(() => showPoint(0), preStartDelayMs);
@@ -79,6 +87,7 @@ export function usePointSequence({
   const stop = () => {
     clearTimer();
     activePointRef.current = null;
+    onActivePointRef.current?.(null);
     setActiveDot(null);
   };
 
