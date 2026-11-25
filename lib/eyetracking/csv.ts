@@ -174,7 +174,7 @@ export function buildTestEvaluationCsv(
   const cell = (value: string | number | boolean | null | undefined) => {
     if (value === null || value === undefined || (typeof value === "number" && !Number.isFinite(value))) return "";
     const text = String(value);
-    return /[\\",\\n\\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   const common = [
     session.participantId, session.sessionId, session.pairedSessionId,
