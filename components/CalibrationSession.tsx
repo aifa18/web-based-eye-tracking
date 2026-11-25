@@ -440,6 +440,20 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
           frameRate,
           distanceConditionCm,
           actualDistanceCm,
+          screenWidthCm: widthCm,
+        participantId: pid,
+        layoutId: layout.id,
+        cameraLabels: selectedOptions.map((option) => option?.label ?? ""),
+        requestedWidth: resolution === "720p" ? 1280 : 1920,
+        requestedHeight: resolution === "720p" ? 720 : 1080,
+        requestedFrameRate: frameRate,
+        pairedSessionId: sessionRef.current.sessionId,
+        screenW: window.screen.width,
+        screenH: window.screen.height,
+        devicePixelRatio: window.devicePixelRatio,
+        screenWidthCm: widthCm,
+        viewingDistanceConditionCm: distanceConditionCm,
+        viewingDistanceCm: actualDistanceCm,
         }));
       } catch (error) {
         console.warn("Pengaturan kamera sesi tidak dapat disimpan:", error);
@@ -546,6 +560,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
                   Kamera {index + 1}
                   <select
                     value={selectedCameraIds[index] ?? ""}
+                    disabled={isTest && !!pairedSessionId}
                     onChange={(event) => {
                       const next = [...selectedCameraIds];
                       next[index] = event.target.value;
@@ -588,17 +603,17 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
 
             <label className="mb-4 block text-left text-sm font-medium text-gray-700">
               ID Partisipan
-              <input type="text" value={participantId} onChange={(e) => setParticipantId(e.target.value)} placeholder="contoh: P01" className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
+              <input type="text" value={participantId} onChange={(e) => setParticipantId(e.target.value)} disabled={isTest && !!pairedSessionId} placeholder="contoh: P01" className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
             </label>
 
             <div className="mb-4 grid grid-cols-1 gap-3 text-left sm:grid-cols-3">
               <label className="block text-sm font-medium text-gray-700">
                 Lebar layar (cm)
-                <input type="number" inputMode="decimal" step="0.1" value={screenWidthCm} onChange={(e) => setScreenWidthCm(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
+                <input type="number" inputMode="decimal" step="0.1" value={screenWidthCm} onChange={(e) => setScreenWidthCm(e.target.value)} disabled={isTest && !!pairedSessionId} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
               </label>
               <label className="block text-sm font-medium text-gray-700">
                 Kondisi jarak
-                <select value={viewingDistanceCm} onChange={(e) => setViewingDistanceCm(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+                <select value={viewingDistanceCm} onChange={(e) => setViewingDistanceCm(e.target.value)} disabled={isTest && !!pairedSessionId} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
                   {PHYSICAL_SETUP.viewingDistanceOptionsCm.map((distance) => {
                     const range = viewingDistanceRangeOf(distance);
                     return <option key={distance} value={distance}>{distance} cm (rentang {range?.min}–{range?.max} cm)</option>;
@@ -607,7 +622,7 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
               </label>
               <label className="block text-sm font-medium text-gray-700">
                 Jarak aktual wajah–layar (cm)
-                <input type="number" inputMode="decimal" step="0.1" value={actualViewingDistanceCm} onChange={(e) => setActualViewingDistanceCm(e.target.value)} placeholder={distanceRange ? `${distanceRange.min}–${distanceRange.max}` : "ukur dalam cm"} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
+                <input type="number" inputMode="decimal" step="0.1" value={actualViewingDistanceCm} onChange={(e) => setActualViewingDistanceCm(e.target.value)} disabled={isTest && !!pairedSessionId} placeholder={distanceRange ? `${distanceRange.min}–${distanceRange.max}` : "ukur dalam cm"} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal" />
               </label>
             </div>
 
@@ -618,12 +633,12 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
             )}
             <div className="mb-4 grid grid-cols-2 gap-3 text-left">
               <label className="block text-sm font-medium text-gray-700">Resolusi kamera
-                <select value={resolution} onChange={(e) => { setResolution(e.target.value as "720p" | "1080p"); setCameraValid({}); }} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+                <select value={resolution} onChange={(e) => { setResolution(e.target.value as "720p" | "1080p"); setCameraValid({}); }} disabled={isTest && !!pairedSessionId} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
                   <option value="720p">720p (1280×720)</option><option value="1080p">1080p (1920×1080)</option>
                 </select>
               </label>
               <label className="block text-sm font-medium text-gray-700">Frame rate
-                <select value={frameRate} onChange={(e) => { setFrameRate(Number(e.target.value) as 30 | 60); setCameraValid({}); }} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+                <select value={frameRate} onChange={(e) => { setFrameRate(Number(e.target.value) as 30 | 60); setCameraValid({}); }} disabled={isTest && !!pairedSessionId} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
                   <option value={30}>30 FPS</option><option value={60}>60 FPS</option>
                 </select>
               </label>
