@@ -205,5 +205,6 @@ export function downloadCsv(csv: string, filename: string): void {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  // Keep the blob URL alive long enough for the browser to start the download.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
