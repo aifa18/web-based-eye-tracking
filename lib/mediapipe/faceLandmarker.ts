@@ -17,18 +17,27 @@ function getVision() {
 // Each camera gets its own VIDEO-mode instance. The WASM resolver is shared.
 export async function getFaceLandmarker(): Promise<FaceLandmarker> {
   const vision = await getVision();
-  return FaceLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath:
-        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
-      delegate: "GPU",
-    },
-    runningMode: "VIDEO",
+  const commonOptions = {
+    modelAssetPath:
+      "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
+    runningMode: "VIDEO" as const,
     numFaces: 1,
     minFaceDetectionConfidence: 0.5,
     minFacePresenceConfidence: 0.5,
     minTrackingConfidence: 0.5,
     outputFaceBlendshapes: false,
     outputFacialTransformationMatrixes: true,
-  });
+  };
+  try {
+    return await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: commonOptions.modelAssetPath, delegate: "GPU" },
+      ...commonOptions,
+    });
+  } catch (gpuError) {
+    console.warn("MediaPipe GPU initialization failed; retrying on CPU.", gpuError);
+    return FaceLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: commonOptions.modelAssetPath, delegate: "CPU" },
+      ...commonOptions,
+    });
+  }
 }
