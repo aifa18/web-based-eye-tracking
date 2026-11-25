@@ -2,6 +2,7 @@
 
 import { EYE_INDICES, IRIS_INDICES, POSE_CONDITION, viewingDistanceRangeOf } from "./config";
 import type { LogRow, SessionInfo } from "./types";
+import type { TestRegionResult } from "@/lib/gaze/testResult";
 
 function fmt(v: number | boolean | string) : string {
     if (typeof v === "boolean") return v ? "true" : "false";
@@ -152,6 +153,46 @@ export function buildCalibrationCsv(rows: LogRow[], session: SessionInfo, camera
   });
 
   return [headers.join(","), ...lines].join("\n");
+}
+
+export function buildTestEvaluationCsv(
+  result: TestRegionResult,
+  session: SessionInfo,
+  cameraId: string,
+  cameraLabel: string
+): string {
+  const range = viewingDistanceRangeOf(session.viewingDistanceConditionCm);
+  const headers = [
+    "record_type", "participant_id", "test_session_id", "paired_calibration_session_id",
+    "camera_id", "camera_label", "distance_condition_cm", "distance_range_min_cm",
+    "distance_range_max_cm", "actual_viewing_distance_cm", "screen_width_cm",
+    "region_cols", "region_rows", "point_hit_pct", "frame_hit_pct", "mean_error_deg",
+    "n_valid_test_frames", "n_training_frames", "frame_index", "timestamp_ms", "point_id",
+    "target_x", "target_y", "predicted_gaze_x", "predicted_gaze_y",
+    "predicted_region_col", "predicted_region_row", "frame_hit", "frame_error_deg",
+  ];
+  const cell = (value: string | number | boolean | null | undefined) => {
+    if (value === null || value === undefined || (typeof value === "number" && !Number.isFinite(value))) return "";
+    const text = String(value);
+    return /[\\",\\n\\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const common = [
+    session.participantId, session.sessionId, session.pairedSessionId,
+    cameraId, cameraLabel, session.viewingDistanceConditionCm,
+    range?.min, range?.max, session.viewingDistanceCm, session.screenWidthCm,
+    result.grid.cols, result.grid.rows, result.pointHitPct, result.frameHitPct,
+    result.meanErrorDeg, result.nFrames, result.nTrain,
+  ];
+  const summaryRow = ["summary", ...common, ...Array(11).fill("")];
+  const frameRows = result.framePredictions.map((frame) => [
+    "frame", ...common,
+    frame.frameIndex, frame.timestampMs, frame.pointId, frame.targetX, frame.targetY,
+    frame.predictedX, frame.predictedY,
+    frame.predictedRegion ? frame.predictedRegion.col + 1 : "",
+    frame.predictedRegion ? frame.predictedRegion.row + 1 : "",
+    frame.hit, frame.errorDeg,
+  ]);
+  return [headers.map(cell).join(","), summaryRow.map(cell).join(","), ...frameRows.map((row) => row.map(cell).join(","))].join("\\n");
 }
 
 export function downloadCsv(csv: string, filename: string): void {
