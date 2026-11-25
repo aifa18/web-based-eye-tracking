@@ -122,7 +122,6 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const [demoHref, setDemoHref] = useState<string | null>(null);
 
   const activePointRefHolder = useRef<import("@/lib/eyetracking/types").ActivePoint | null>(null);
-  const activePointRefSource = useRef<import("@/lib/eyetracking/types").ActivePoint | null>(null);
   const stageRef = useRef<Stage>("setup");
   const cameraLogsRef = useRef<CameraLog[]>([]);
   const sessionRef = useRef<SessionInfo | null>(null);
@@ -334,19 +333,16 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
     setDemoHref(`/gaze-demo?${q.toString()}`);
   };
 
+  const syncActivePoint = useCallback((point: import("@/lib/eyetracking/types").ActivePoint | null) => {
+    activePointRefHolder.current = point;
+  }, []);
   const sequence = usePointSequence({
     pointDurationMs: POINT_DURATION_MS,
     preStartDelayMs: PRE_START_DELAY_MS,
     onFinish: finishCalibration,
+    onActivePoint: syncActivePoint,
   });
-  const { activeDot, activePointRef } = sequence;
-  activePointRefSource.current = activePointRef.current;
-  useEffect(() => {
-    const sync = () => { activePointRefHolder.current = activePointRefSource.current; };
-    sync();
-    const id = window.setInterval(sync, 10);
-    return () => window.clearInterval(id);
-  }, []);
+  const { activeDot } = sequence;
 
   const abortCalibration = (reason: string) => {
     if (stageRef.current !== "calibrating") return;
