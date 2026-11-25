@@ -77,6 +77,9 @@ export default function WebcamFaceLandmarker({
   useEffect(() => { frameCallbackRef.current = onFrame; }, [onFrame]);
 
   useEffect(() => {
+    setError(null);
+    setIsLoading(true);
+    setIsFaceValid(false);
     const video = videoRef.current as VideoWithFrameCallback | null;
     let cancelled = false;
     let stream: MediaStream | null = null;
