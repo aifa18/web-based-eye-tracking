@@ -249,9 +249,12 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
 
   const handleFrame = useCallback((cameraId: string, frame: EyeTrackingFrame) => {
     if (stageRef.current !== "calibrating") return;
-    const log = cameraLogsRef.current.find((item) => item.cameraId === cameraId);
-    const detector = fixationDetectorsRef.current.get(cameraId);
-    if (!log || !detector) return;
+    // WebcamFaceLandmarker reports the browser deviceId; map it to the
+    // stable per-session cameraId before looking up the log and detector.
+    const log = cameraLogsRef.current.find((item) => item.deviceId === cameraId);
+    if (!log) return;
+    const detector = fixationDetectorsRef.current.get(log.cameraId);
+    if (!detector) return;
 
     // Each camera owns its own I-DT state; no samples cross camera streams.
     const fixation = detector.update(frame);
