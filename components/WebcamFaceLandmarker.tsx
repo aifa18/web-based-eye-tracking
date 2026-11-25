@@ -250,9 +250,13 @@ export default function WebcamFaceLandmarker({
         loop();
       } catch (err) {
         console.error(err);
+        stream?.getTracks().forEach((track) => track.stop());
+        stream = null;
+        if (video) video.srcObject = null;
+        faceLandmarker?.close();
+        faceLandmarker = null;
         if (cancelled) return;
         const name = err instanceof DOMException ? err.name : "";
-        faceLandmarker?.close();
         if (name === "NotAllowedError") setError("Akses kamera ditolak. Izinkan akses kamera di browser.");
         else if (name === "NotFoundError" || name === "OverconstrainedError") setError("Kamera yang dipilih tidak tersedia atau sedang tidak terhubung.");
         else if (name === "NotReadableError") setError("Kamera sedang dipakai aplikasi lain atau tidak dapat dibuka.");
