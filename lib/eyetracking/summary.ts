@@ -72,7 +72,9 @@ export function computeSummary(
     totalFrames,
     validFrames,
     durationS,
-    processedFps: durationS > 0 ? totalFrames / durationS : NaN,
+    // FPS delivered to this processing pipeline: interval-based (N-1)/elapsed,
+    // avoiding the one-frame overcount from N/elapsed.
+    processedFps: durationS > 0 && totalFrames > 1 ? (totalFrames - 1) / durationS : NaN,
     effectiveFps: durationS > 0 ? validFrames / durationS : NaN,
     meanDetectionMs,
     captureTimeRatio,
