@@ -87,6 +87,8 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const [summary, setSummary] = useState<SessionSummary | null>(null);
   const [cameraOptions, setCameraOptions] = useState<CameraOption[]>([]);
   const [selectedCameraIds, setSelectedCameraIds] = useState<string[]>([]);
+  const [pairedCameraIds, setPairedCameraIds] = useState<string[]>([]);
+  const [pairedSetupAvailable, setPairedSetupAvailable] = useState(!isTest || !pairedSessionId);
   const [cameraValid, setCameraValid] = useState<Record<string, boolean>>({});
   const [cameraError, setCameraError] = useState<string | null>(null);
 
@@ -150,23 +152,47 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
         if (cancelled) return;
         setCameraOptions(available);
         let defaults = available.slice(0, CAMERA_COUNT).map((camera) => camera.deviceId);
+        let pairedSetupError: string | null = null;
         if (isTest && pairedSessionId) {
           try {
             const saved = sessionStorage.getItem(`eye-session-setup:${pairedSessionId}`);
-            if (saved) {
-              const setup = JSON.parse(saved) as { cameraIds?: string[]; resolution?: "720p" | "1080p"; frameRate?: 30 | 60 };
-              const restored = (setup.cameraIds ?? []).filter((id) => available.some((camera) => camera.deviceId === id));
-              if (restored.length === CAMERA_COUNT && new Set(restored).size === CAMERA_COUNT) defaults = restored;
+            if (!saved) {
+              setPairedSetupAvailable(false);
+              setPairedCameraIds([]);
+              pairedSetupError = "Pengaturan kalibrasi pasangan tidak ditemukan di tab ini. Ulangi kalibrasi dan buka test grid dari tombol lanjut.";
+            } else {
+              const setup = JSON.parse(saved) as {
+                cameraIds?: string[]; resolution?: "720p" | "1080p"; frameRate?: 30 | 60;
+                distanceConditionCm?: number; actualDistanceCm?: number;
+              };
+              const originalIds = setup.cameraIds ?? [];
+              const allOriginalAvailable = originalIds.length === CAMERA_COUNT &&
+                new Set(originalIds).size === CAMERA_COUNT &&
+                originalIds.every((id) => available.some((camera) => camera.deviceId === id));
+              setPairedCameraIds(originalIds);
+              setPairedSetupAvailable(allOriginalAvailable);
+              if (allOriginalAvailable) defaults = originalIds;
+              else pairedSetupError = "Kamera yang digunakan saat kalibrasi tidak semuanya tersedia. Sambungkan kembali perangkat yang sama dan urutkan sesuai sesi kalibrasi.";
               if (setup.resolution === "720p" || setup.resolution === "1080p") setResolution(setup.resolution);
               if (setup.frameRate === 30 || setup.frameRate === 60) setFrameRate(setup.frameRate);
+              if (!prefill?.viewingDistanceCm && (setup.distanceConditionCm === 45 || setup.distanceConditionCm === 55 || setup.distanceConditionCm === 65)) {
+                setViewingDistanceCm(String(setup.distanceConditionCm));
+              }
+              if (!prefill?.actualViewingDistanceCm && Number.isFinite(setup.actualDistanceCm)) {
+                setActualViewingDistanceCm(String(setup.actualDistanceCm));
+              }
             }
           } catch {
-            console.warn("Pengaturan kamera sesi kalibrasi tidak dapat dipulihkan.");
+            setPairedSetupAvailable(false);
+            setPairedCameraIds([]);
+            pairedSetupError = "Pengaturan kamera sesi kalibrasi tidak dapat dipulihkan.";
           }
         }
         setSelectedCameraIds(defaults);
         if (available.length < CAMERA_COUNT) {
           setCameraError(`Ditemukan ${available.length} kamera. Empat kamera diperlukan; hubungkan kamera tambahan.`);
+        } else if (pairedSetupError) {
+          setCameraError(pairedSetupError);
         } else {
           setCameraError(null);
         }
@@ -186,7 +212,10 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
   const selectedUnique = selectedCameraIds.length === CAMERA_COUNT &&
     selectedCameraIds.every(Boolean) &&
     new Set(selectedCameraIds).size === CAMERA_COUNT;
-  const allCamerasValid = selectedUnique &&
+  const pairedCameraOrderValid = !isTest || !pairedSessionId ||
+    (pairedSetupAvailable && pairedCameraIds.length === CAMERA_COUNT &&
+      selectedCameraIds.every((id, index) => id === pairedCameraIds[index]));
+  const allCamerasValid = selectedUnique && pairedCameraOrderValid &&
     selectedCameraIds.every((id) => cameraValid[id] === true);
 
   const handleCameraSettings = useCallback((deviceId: string, settings: CameraCaptureSettings) => {
