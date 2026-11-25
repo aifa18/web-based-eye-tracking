@@ -27,6 +27,7 @@ type WebcamFaceLandmarkerProps = {
   requestedFrameRate: number;
   showPreview?: boolean;
   onFaceValidChange?: (cameraId: string, isValid: boolean) => void;
+  onCameraSettings?: (deviceId: string, settings: { width?: number; height?: number; frameRate?: number }) => void;
   onFrame?: (cameraId: string, frame: EyeTrackingFrame) => void;
 };
 
@@ -57,12 +58,14 @@ export default function WebcamFaceLandmarker({
   requestedFrameRate,
   showPreview = true,
   onFaceValidChange,
+  onCameraSettings,
   onFrame,
 }: WebcamFaceLandmarkerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const showPreviewRef = useRef(showPreview);
   const faceValidCallbackRef = useRef(onFaceValidChange);
+  const cameraSettingsCallbackRef = useRef(onCameraSettings);
   const frameCallbackRef = useRef(onFrame);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -70,6 +73,7 @@ export default function WebcamFaceLandmarker({
 
   useEffect(() => { showPreviewRef.current = showPreview; }, [showPreview]);
   useEffect(() => { faceValidCallbackRef.current = onFaceValidChange; }, [onFaceValidChange]);
+  useEffect(() => { cameraSettingsCallbackRef.current = onCameraSettings; }, [onCameraSettings]);
   useEffect(() => { frameCallbackRef.current = onFrame; }, [onFrame]);
 
   useEffect(() => {
@@ -83,28 +87,37 @@ export default function WebcamFaceLandmarker({
     let frameIndex = 0;
     let lastFaceValid: boolean | null = null;
     let drawingUtils: DrawingUtils | null = null;
+    let faceLandmarker: FaceLandmarker | null = null;
     let lastMeta: { mediaTime: number; captureTime: number } | null = null;
 
     const start = async () => {
       try {
         if (!cameraId) throw new Error("Pilih kamera terlebih dahulu.");
-        const [faceLandmarker, newStream] = await Promise.all([
-          getFaceLandmarker(),
-          navigator.mediaDevices.getUserMedia({
-            video: {
-              deviceId: { exact: cameraId },
-              width: { ideal: requestedWidth },
-              height: { ideal: requestedHeight },
-              frameRate: { ideal: requestedFrameRate },
-            },
-            audio: false,
-          }),
-        ]);
+        faceLandmarker = await getFaceLandmarker();
+        if (cancelled) {
+          faceLandmarker.close();
+          return;
+        }
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            deviceId: { exact: cameraId },
+            width: { ideal: requestedWidth },
+            height: { ideal: requestedHeight },
+            frameRate: { ideal: requestedFrameRate },
+          },
+          audio: false,
+        });
         if (cancelled) {
           newStream.getTracks().forEach((track) => track.stop());
           return;
         }
         stream = newStream;
+        const trackSettings = newStream.getVideoTracks()[0]?.getSettings();
+        cameraSettingsCallbackRef.current?.(cameraId, {
+          width: trackSettings?.width,
+          height: trackSettings?.height,
+          frameRate: trackSettings?.frameRate,
+        });
         if (!video) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -236,6 +249,7 @@ export default function WebcamFaceLandmarker({
         console.error(err);
         if (cancelled) return;
         const name = err instanceof DOMException ? err.name : "";
+        faceLandmarker?.close();
         if (name === "NotAllowedError") setError("Akses kamera ditolak. Izinkan akses kamera di browser.");
         else if (name === "NotFoundError" || name === "OverconstrainedError") setError("Kamera yang dipilih tidak tersedia atau sedang tidak terhubung.");
         else if (name === "NotReadableError") setError("Kamera sedang dipakai aplikasi lain atau tidak dapat dibuka.");
@@ -247,6 +261,7 @@ export default function WebcamFaceLandmarker({
     start();
     return () => {
       cancelled = true;
+      faceLandmarker?.close();
       if (rafId !== null) cancelAnimationFrame(rafId);
       if (vfcId !== null && video?.cancelVideoFrameCallback) video.cancelVideoFrameCallback(vfcId);
       stream?.getTracks().forEach((track) => track.stop());
