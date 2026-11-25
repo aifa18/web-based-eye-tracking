@@ -24,7 +24,7 @@ import {
   viewingDistanceRangeOf,
   isViewingDistanceWithinRange,
 } from "@/lib/eyetracking/config";
-import { buildCalibrationCsv, downloadCsv } from "@/lib/eyetracking/csv";
+import { buildCalibrationCsv, buildTestEvaluationCsv, downloadCsv } from "@/lib/eyetracking/csv";
 import { FixationDetector } from "@/lib/eyetracking/fixation";
 import { computeSummary } from "@/lib/eyetracking/summary";
 import { formatSessionTime, shuffle } from "@/lib/eyetracking/utils";
@@ -696,6 +696,20 @@ export default function CalibrationSession({ layout, prefill }: CalibrationSessi
             <section key={cameraId} className="mb-6 rounded-lg border border-gray-200 p-4">
               <h3 className="mb-3 text-lg font-semibold">{item.cameraLabel}</h3>
               <TestRegionResultView result={item.result} screenW={item.screenW} screenH={item.screenH} />
+              <button
+                type="button"
+                onClick={() => {
+                  const session = sessionRef.current;
+                  if (!session) return;
+                  downloadCsv(
+                    buildTestEvaluationCsv(item.result, session, cameraId, item.cameraLabel),
+                    `test-evaluation_${session.layoutId}_${session.sessionId}_${cameraId}.csv`
+                  );
+                }}
+                className="mt-3 rounded bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                Unduh evaluasi gaze per frame (CSV)
+              </button>
             </section>
           ))}
           {gazeNote && <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{gazeNote}</p>}
